@@ -8,11 +8,14 @@ internal class Program
 {
     static void Main(string[] args)
     {
-        var png = PNG.FromFile(
-            "../../../testImages", 
-            "redDot_1x1.png");
+        //var png = PNG.FromFile(
+        //    "../../../testImages", 
+        //    "redDot_1x1.png");
 
-        
+        ulong res = Utils.CRC32([0b00110100, 0b11101100]);
+
+        Utils.Log(Convert.ToString((long)res, 2));
+
     }
 
     static void SpeedTest()

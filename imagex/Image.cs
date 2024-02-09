@@ -141,6 +141,9 @@ public class PNG : Image
         readonly int length;
         readonly int crc;
 
+        // READ CRC32
+        // READ CONTENT INTO STRUCT? IHDR
+
         internal Chunk(int _type, byte[] _data, int _offset, int _length, int _crc) {
 
             if (!Enum.IsDefined(typeof(Type), _type))
