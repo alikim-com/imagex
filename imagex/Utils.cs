@@ -7,18 +7,23 @@ namespace utils;
 
 public class Utils
 {
+    /// <summary>
+    /// Computes any CRC[1..63] depending on the length of hardwared polynomial
+    /// meant to work on 64bit architecture
+    /// ulong is supposed to be 8 bytes 
+    /// </summary>
+    /// <returns></returns>
     static public ulong CRC32(byte[] data)
     {
         //           0b10000010_01100000_10001110_11011011_10000000_00000000_00000000_00000000;
-        ulong dsor =    0b10110000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
-        ulong crcMask = 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000111;
+        ulong dsor = 0b10110000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+        int dsorBitLen = 64 - BitOperations.TrailingZeroCount(dsor);
 
         int len = data.Length;
         int maxDataOff = len - 1;
         int bitLen = len * 8;
-        int allDataInOff = bitLen - 4;
-        int maxShift = bitLen - 1;
-        int safeTailZeros = 64 - 4;
+        int allDataInOff = bitLen - dsorBitLen;
+        int safeTailZeros = 64 - dsorBitLen;
         int accShift = 0;
 
         ulong divend = 0;
@@ -30,7 +35,7 @@ public class Utils
                 divend <<= 8;
                 divend |= data[i];
             }
-            divend <<= 64 - len * 8;
+            divend <<= 64 - bitLen;
         } else
         {
             var sp = new ReadOnlySpan<byte>(data, 0, initBytes);
@@ -39,18 +44,13 @@ public class Utils
         var dataOff = initBytes;
         int tailZeros = 64 - initBytes * 8;
 
-        int bitDataIn;
+        int bitDataIn, bitDataLen;
         do
         {
             Log("div " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
 
             var leadZeros = BitOperations.LeadingZeroCount(divend);
             accShift += leadZeros;
-            //if (accShift > maxShift)
-            //{
-            //    Log("safeguard");
-            //    break;
-            //}
             divend <<= leadZeros;
 
             Log("zrs " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
@@ -73,12 +73,15 @@ public class Utils
             divend ^= dsor;
 
             bitDataIn = accShift - allDataInOff;
+            bitDataLen = dsorBitLen - bitDataIn;
 
             Log("dsr " + Convert.ToString((long)dsor, 2).PadLeft(64, '0'));
             
-        } while (bitDataIn < 0 && divend >> (safeTailZeros + bitDataIn) != 0);
+        } while (bitDataIn < 0 || BitOperations.LeadingZeroCount(divend) != bitDataLen);
 
-        return divend & crcMask;
+        Log("fin " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
+
+        return divend >> (64 - (bitDataLen + (dsorBitLen - 1)));
     }
 
     static public byte[] ReadFileBytes(string path, string name)

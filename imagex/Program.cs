@@ -12,7 +12,8 @@ internal class Program
         //    "../../../testImages", 
         //    "redDot_1x1.png");
 
-        ulong res = Utils.CRC32([0b00110100, 0b11101100]);
+        // ulong res = Utils.CRC32([0b00110100, 0b11101100]);
+        ulong res = Utils.CRC32([0x89, 0x50, 0x4e, 0x47]);
 
         Utils.Log(Convert.ToString((long)res, 2));
 
