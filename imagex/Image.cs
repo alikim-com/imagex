@@ -1,8 +1,11 @@
 ﻿// official format doc
 // https://www.w3.org/TR/png/
 
-using System;
+
 using System.Buffers.Binary;
+using System.IO.Hashing;
+using System.Text;
+using System.Xml.Linq;
 
 namespace imagex;
 
@@ -30,6 +33,8 @@ public class PNG : Image
 {
     static readonly ulong SIG = 0x89504E470D0A1A0A;
 
+    static readonly bool isLE = BitConverter.IsLittleEndian;
+
     public enum ColorType
     {
         Greyscale = 0,
@@ -42,7 +47,7 @@ public class PNG : Image
     static readonly Dictionary<ColorType, int> channels = new() {
         { ColorType.Greyscale, 1 },
         { ColorType.Truecolour, 3 },
-        { ColorType.IndexedColour, 1 },  
+        { ColorType.IndexedColour, 1 },
         { ColorType.GreyscaleWithAlpha, 2 },
         { ColorType.TruecolourWithAlpha, 4 },
     };
@@ -67,11 +72,12 @@ public class PNG : Image
     public readonly byte[] PixelData;
 
     public PNG(
-        ColorType _ctype, 
-        int _bitDepth, 
-        int _width, 
+        ColorType _ctype,
+        int _bitDepth,
+        int _width,
         int _height,
-        byte[]? pixelData) : base(Format.PNG, _width, _height) { 
+        byte[]? pixelData) : base(Format.PNG, _width, _height)
+    {
 
         ctype = _ctype;
         if (!allowedBitDepths[ctype].Contains(_bitDepth)) throw new NotImplementedException
@@ -83,15 +89,15 @@ public class PNG : Image
 
         PixelData = pixelData ?? new byte[bitsPerPixel];
     }
-    
+
     public static PNG FromFile(string path, string fname)
     {
-        var BEData = Utils.ReadFileBytes(path, fname);
-        var len = BEData.Length;
+        var data = Utils.ReadFileBytes(path, fname);
+        var len = data.Length;
 
         var offset = 0;
 
-        var sp = new ReadOnlySpan<byte>(BEData, offset, 8);
+        var sp = new ReadOnlySpan<byte>(data, offset, 8);
         var sig = BinaryPrimitives.ReadUInt64BigEndian(sp);
         if (sig != SIG) throw new Exception
                 ($"PNG.FromFile : bad file signature '{sig:X}'");
@@ -99,18 +105,20 @@ public class PNG : Image
         // find chunks
         offset = 8;
         List<Chunk> chList = [];
-        while(offset < len)
+        while (offset < len)
         {
-            var spLen = new ReadOnlySpan<byte>(BEData, offset, 4);
+            var spLen = new ReadOnlySpan<byte>(data, offset, 4);
             var chLen = BinaryPrimitives.ReadInt32BigEndian(spLen);
 
-            var spType = new ReadOnlySpan<byte>(BEData, offset + 4, 4);
+            var spType = new ReadOnlySpan<byte>(data, offset + 4, 4);
             var chType = BinaryPrimitives.ReadInt32BigEndian(spType);
 
-            var spCrc = new ReadOnlySpan<byte>(BEData, offset + 8 + chLen, 4);
+            var spCrc = new ReadOnlySpan<byte>(data, offset + 8 + chLen, 4);
             var crc = BinaryPrimitives.ReadInt32BigEndian(spCrc);
 
-            chList.Add(new Chunk(chType, BEData, offset + 8, chLen, crc));
+            var chunkData = new ArraySegment<byte>(data, offset + 8, chLen);
+
+            chList.Add(new Chunk(chType, chunkData, crc));
 
             offset += 12 + chLen;
         }
@@ -122,7 +130,7 @@ public class PNG : Image
         8,
         1,
         1,
-        new byte[] { 0,0,0,0} );
+        new byte[] { 0, 0, 0, 0 });
     }
 
     class Chunk
@@ -135,48 +143,71 @@ public class PNG : Image
             IEND = 0x49454E44,
         }
 
+        public enum Status
+        {
+            OK = 0,
+            TypeNotSupported = 2,
+            CRC32Mismatch = 4,
+        }
+
         readonly Type type;
-        readonly byte[] BEData;
-        readonly int offset;
-        readonly int length;
+        readonly ArraySegment<byte> data;
         readonly int crc;
+        readonly Status status;
 
-        // READ CRC32
-        // READ CONTENT INTO STRUCT? IHDR
-
-        internal Chunk(int _type, byte[] _data, int _offset, int _length, int _crc) {
+        internal Chunk(int _type, ArraySegment<byte> _data, int _crc)
+        {
 
             if (!Enum.IsDefined(typeof(Type), _type))
             {
                 type = Type.None;
                 Utils.Log($"Chunk.Ctor : chunk type '{_type:X}' not supported, skipping");
-            } else {
+                status |= Status.TypeNotSupported;
+            } else
+            {
                 type = (Type)_type;
             }
 
-            BEData = _data;
-            offset = _offset;
-            length = _length;
+            data = _data;
             crc = _crc;
+            status |= CheckCrc();
         }
 
-        void Some() {
-            var spData = new ReadOnlySpan<byte>(BEData, offset, length);
+        Status CheckCrc()
+        {
+            var crc = new Crc32();
+            int typeBE = isLE ? BinaryPrimitives.ReverseEndianness((int)type) : (int)type;
+            crc.Append(BitConverter.GetBytes(typeBE)); // reads from low to high mem
+            crc.Append(data);
+
+            var chksumBE = crc.GetCurrentHash(); // always same order
+
+            var status = Equals(chksumBE, BitConverter.GetBytes(this.crc)) ? Status.OK : Status.CRC32Mismatch;
+
+            return status;
         }
 
-        public override string ToString() {
-            var beg = offset;
-            var end = offset + length;
-            var raw = length > 4 ? 
-                BitConverter.ToString(BEData[beg..(beg + 4)]) + 
-                " .. " + BitConverter.ToString(BEData[(end - 4)..end]) :
-                BitConverter.ToString(BEData[beg..end]);
-            return 
+        public string EnumBitsToString(Enum val)
+        {
+            return "";
+        }
+
+        public override string ToString()
+        {
+            var beg = data.Offset;
+            var len = data.Count;
+            var end = beg + len;
+            var arr = data.Array;
+            var raw = arr == null ? "" : len <= 8 ? BitConverter.ToString(arr, beg, len) : 
+            BitConverter.ToString(arr, beg, 4) + " .. " + BitConverter.ToString(arr, end - 4, 4);
+
+            return
             $"""
             type: {type}
-            length: {length}
+            length: {len}
             raw data: {raw.Replace("-", " ")}
             crc: {crc:X}
+            status: {EnumBitsToString(status)}
 
             """;
         }

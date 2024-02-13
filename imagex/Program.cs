@@ -9,7 +9,8 @@ internal class Program
 {
     static void Main(string[] args)
     {
-        TestCRC32();
+        //TestCRC32();
+        TestLoad();
     }
 
     static void TestCRC32()
