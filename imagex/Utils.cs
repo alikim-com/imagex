@@ -8,80 +8,98 @@ namespace utils;
 public class Utils
 {
     /// <summary>
-    /// Computes any CRC[1..63] depending on the length of hardwared polynomial
-    /// meant to work on 64bit architecture
-    /// ulong is supposed to be 8 bytes 
+    /// Can compute CRC[1..55], depending on hardcoded polynomial
+    /// uses 64 bit ulong as a container
     /// </summary>
-    /// <returns></returns>
+    /// <param name="dsor">divisor polymonial loaded into highest bits of ulong; <br/>
+    /// currently for CRC32: x32 + x26 + x23 + x22 + x16 + x12 + x11 + x10 + x8 + x7 + x5 + x4 + x2 + x1 + x0
+    /// </param>
+    /// <param name="dsorLen">actual bit-length of dsor; N + 1 for CRC[N]</param>
+    /// <param name="divend">container holding up to 8 bytes of data being processed</param>
+    /// <param name="payload">the number of data bits currently in divend, counting from msb</param>
     static public ulong CRC32(byte[] data)
     {
-        //           0b10000010_01100000_10001110_11011011_10000000_00000000_00000000_00000000;
-        ulong dsor = 0b10110000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
-        int dsorBitLen = 64 - BitOperations.TrailingZeroCount(dsor);
+        ulong divend = 0;
+        ulong dsor = 0b10000010_01100000_10001110_11011011_10000000_00000000_00000000_00000000;
+        int dsorLen = 33;  
+
+        //ulong dsor = 0b10110000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+        //int dsorLen = 4;
 
         int len = data.Length;
-        int maxDataOff = len - 1;
-        int bitLen = len * 8;
-        int allDataInOff = bitLen - dsorBitLen;
-        int safeTailZeros = 64 - dsorBitLen;
-        int accShift = 0;
 
-        ulong divend = 0;
-        var initBytes = Math.Min(8, len);
-        if (initBytes < 8)
+        // initial load
+        int bytesLoaded = Math.Min(8, len);
+        if (bytesLoaded < 8)
         {
             for (int i = 0; i < len; i++)
             {
                 divend <<= 8;
                 divend |= data[i];
             }
-            divend <<= 64 - bitLen;
+            divend <<= 64 - len * 8;
         } else
         {
-            var sp = new ReadOnlySpan<byte>(data, 0, initBytes);
+            var sp = new ReadOnlySpan<byte>(data, 0, bytesLoaded);
             divend = BinaryPrimitives.ReadUInt64BigEndian(sp);
         }
-        var dataOff = initBytes;
-        int tailZeros = 64 - initBytes * 8;
 
-        int bitDataIn, bitDataLen;
-        do
+        int payload = bytesLoaded * 8;
+
+        while (true)
         {
-            Log("div " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
+            PrintDivendBlocks(divend, payload, "div");
 
-            var leadZeros = BitOperations.LeadingZeroCount(divend);
-            accShift += leadZeros;
-            divend <<= leadZeros;
+            int leadZeros = BitOperations.LeadingZeroCount(divend);
 
-            Log("zrs " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
+            int bytesToload = len - bytesLoaded;
+            bool zeroPayload = leadZeros >= payload;
 
-            tailZeros += leadZeros;
-            if (tailZeros > safeTailZeros)
+            if (bytesToload == 0 && zeroPayload) break;
+
+            if (zeroPayload)
             {
-                var wholeBytes = Math.Min(tailZeros / 8, maxDataOff - dataOff);
+                payload = 0;
+            } 
+            else
+            {
+                payload -= leadZeros;
+                divend <<= leadZeros;
+
+                PrintDivendBlocks(divend, payload, "zrs");
+            }
+
+            if (payload < dsorLen)
+            {
+                var availPayloadLen = 64 - payload;
+                var wholeBytes = Math.Min(availPayloadLen / 8, bytesToload);
                 if (wholeBytes > 0)
                 {
-                    var sp = new ReadOnlySpan<byte>(data, dataOff, wholeBytes);
-                    ulong divendTail = BinaryPrimitives.ReadUInt64BigEndian(sp);
-                    dataOff += wholeBytes;
-                    tailZeros -= wholeBytes * 8;
-                    divend |= divendTail << tailZeros;
+                    ulong newPayload = 0;
+                    for (int i = 0; i < wholeBytes; i++)
+                    {
+                        newPayload <<= 8;
+                        newPayload |= data[bytesLoaded++];
+                    }
+                    var actPayloadLen = wholeBytes * 8;
+                    newPayload <<= availPayloadLen - actPayloadLen;
+                    divend |= newPayload;
+
+                    payload += actPayloadLen;
 
                     Log("tal " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
                 }
             }
+
             divend ^= dsor;
 
-            bitDataIn = accShift - allDataInOff;
-            bitDataLen = dsorBitLen - bitDataIn;
-
             Log("dsr " + Convert.ToString((long)dsor, 2).PadLeft(64, '0'));
-            
-        } while (bitDataIn < 0 || BitOperations.LeadingZeroCount(divend) != bitDataLen);
+
+        }
 
         Log("fin " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
 
-        return divend >> (64 - (bitDataLen + (dsorBitLen - 1)));
+        return divend >> (64 - payload - (dsorLen - 1));
     }
 
     static public byte[] ReadFileBytes(string path, string name)
@@ -93,7 +111,7 @@ public class Utils
         catch (Exception ex)
         {
             Log($"Utils.ReadFile : exception '{ex.Message}'");
-            return Array.Empty<byte>();
+            return [];
         }
     }
 
@@ -149,6 +167,17 @@ public class Utils
                 throw new NotImplementedException($"Utils.Log : logMode '{logMode}' is not supported");
         }
 
+    }
+
+    static public void PrintDivendBlocks(ulong divend, int payload, string pref)
+    {
+        Console.Write(pref + " ");
+        var clr = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Green;
+        string divstr = Convert.ToString((long)divend, 2).PadLeft(64, '0');
+        Console.Write(divstr[0..payload]);
+        Console.ForegroundColor = clr;
+        Console.WriteLine(divstr[payload..]);
     }
 }
 
