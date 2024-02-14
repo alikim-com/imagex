@@ -5,8 +5,49 @@ using System.Numerics;
 
 namespace utils;
 
+public static class IntExtensions
+{
+    static readonly bool isLE = BitConverter.IsLittleEndian;
+
+    /// <summary>
+    /// BitConverter.GetBytes always reads memory low -> high;
+    /// </summary>
+    public static byte[] BytesLeftToRight(this int val)
+    {
+        int memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
+        return BitConverter.GetBytes(memLayoutBE);
+    }
+
+    public static byte[] BytesRightToLeft(this int val)
+    {
+        int memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
+        return BitConverter.GetBytes(memLayoutLE);
+    }
+}
+
 public class Utils
 {
+    static public string IntBitsToEnums(int val, Type enmType)
+    {
+        List<string> outp = [];
+        int mult = 1;
+
+        for (int i = 0; i < 8; i++)
+        {
+            int lsb = val & 0x00_00_00_01;
+
+            if (lsb == 1)
+            {
+                string? name = Enum.GetName(enmType, lsb * mult);
+                if (name != null) outp.Add(name);
+            }
+            val >>= 1;
+            mult *= 2;
+        }
+
+        return string.Join(" | ", outp);
+    }
+
     /// <summary>
     /// Can compute CRC[1..55], depending on hardcoded polynomial;<br/>
     /// uses 64 bit ulong as a container<br/>

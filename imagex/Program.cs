@@ -7,7 +7,7 @@ namespace imagex;
 
 internal class Program
 {
-    static void Main(string[] args)
+    static void Main()
     {
         //TestCRC32();
         TestLoad();

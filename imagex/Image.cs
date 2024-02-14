@@ -4,12 +4,10 @@
 
 using System.Buffers.Binary;
 using System.IO.Hashing;
-using System.Text;
-using System.Xml.Linq;
 
 namespace imagex;
 
-public class Image
+public class Image(Image.Format _format, int _width, int _height)
 {
     public enum Format
     {
@@ -17,16 +15,9 @@ public class Image
         PNG,
     }
 
-    public readonly Format format;
-    public readonly int width;
-    public readonly int height;
-
-    public Image(Format _format, int _width, int _height)
-    {
-        format = _format;
-        width = _width;
-        height = _height;
-    }
+    public readonly Format format = _format;
+    public readonly int width = _width;
+    public readonly int height = _height;
 }
 
 public class PNG : Image
@@ -130,7 +121,7 @@ public class PNG : Image
         8,
         1,
         1,
-        new byte[] { 0, 0, 0, 0 });
+        [0, 0, 0, 0]);
     }
 
     class Chunk
@@ -145,15 +136,18 @@ public class PNG : Image
 
         public enum Status
         {
-            OK = 0,
+            None = 0,
+            OK = 1,
             TypeNotSupported = 2,
             CRC32Mismatch = 4,
+            CRC8 = 8,
+            CRC16 = 16,
         }
 
         readonly Type type;
         readonly ArraySegment<byte> data;
         readonly int crc;
-        readonly Status status;
+        readonly int status;
 
         internal Chunk(int _type, ArraySegment<byte> _data, int _crc)
         {
@@ -162,7 +156,7 @@ public class PNG : Image
             {
                 type = Type.None;
                 Utils.Log($"Chunk.Ctor : chunk type '{_type:X}' not supported, skipping");
-                status |= Status.TypeNotSupported;
+                status |= (int)Status.TypeNotSupported;
             } else
             {
                 type = (Type)_type;
@@ -170,26 +164,22 @@ public class PNG : Image
 
             data = _data;
             crc = _crc;
-            status |= CheckCrc();
+            status |= (int)CheckCrc();
+
+            if (status == (int)Status.None) status = (int)Status.OK;
         }
 
         Status CheckCrc()
         {
             var crc = new Crc32();
-            int typeBE = isLE ? BinaryPrimitives.ReverseEndianness((int)type) : (int)type;
-            crc.Append(BitConverter.GetBytes(typeBE)); // reads from low to high mem
+            crc.Append(((int)type).BytesLeftToRight());
             crc.Append(data);
 
-            var chksumBE = crc.GetCurrentHash(); // always same order
+            var chksumBE = crc.GetCurrentHash(); // always BE
 
-            var status = Equals(chksumBE, BitConverter.GetBytes(this.crc)) ? Status.OK : Status.CRC32Mismatch;
+            var status = chksumBE.SequenceEqual(this.crc.BytesRightToLeft()) ? Status.None : Status.CRC32Mismatch;
 
             return status;
-        }
-
-        public string EnumBitsToString(Enum val)
-        {
-            return "";
         }
 
         public override string ToString()
@@ -198,7 +188,7 @@ public class PNG : Image
             var len = data.Count;
             var end = beg + len;
             var arr = data.Array;
-            var raw = arr == null ? "" : len <= 8 ? BitConverter.ToString(arr, beg, len) : 
+            var raw = arr == null ? "" : len <= 8 ? BitConverter.ToString(arr, beg, len) :
             BitConverter.ToString(arr, beg, 4) + " .. " + BitConverter.ToString(arr, end - 4, 4);
 
             return
@@ -207,7 +197,7 @@ public class PNG : Image
             length: {len}
             raw data: {raw.Replace("-", " ")}
             crc: {crc:X}
-            status: {EnumBitsToString(status)}
+            status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
             """;
         }
