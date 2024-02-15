@@ -109,7 +109,7 @@ public class PNG : Image
 
             var chunkData = new ArraySegment<byte>(data, offset + 8, chLen);
 
-            chList.Add(new Chunk(chType, chunkData, crc));
+            chList.Add(Chunk.Create(chType, chunkData, crc));
 
             offset += 12 + chLen;
         }
@@ -124,9 +124,61 @@ public class PNG : Image
         [0, 0, 0, 0]);
     }
 
-    class Chunk
+    class NoneChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
+        Chunk(_type, _status, _data, _crc)
+    { }
+
+    class IHDRChunk : Chunk
     {
-        public enum Type
+        public readonly int width;
+        public readonly int height;
+        public readonly byte bitDepth;
+        public readonly byte cType;
+        public readonly byte compression; // 0
+        public readonly byte filter; // 0
+        public readonly byte interlaced;
+
+        public IHDRChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
+            base(_type, _status, _data, _crc)
+        {
+            width = BinaryPrimitives.ReadInt32BigEndian(_data);
+            height = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(4));
+            bitDepth = _data[8];
+            cType = _data[9];
+            compression = _data[10];
+            filter = _data[11];
+            interlaced = _data[12];
+        }
+
+        protected override string ParsedData() =>
+        $"""
+          width: {width}
+          height: {height}
+          bitDepth: {bitDepth}
+          cType: {cType}
+          compression: {compression}
+          filter: {filter}
+          interlaced: {filter}
+
+        """;
+    }
+
+    class IDATChunk : Chunk
+    {
+        public IDATChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
+            base(_type, _status, _data, _crc)
+        {
+
+        }
+    }
+
+    class IENDChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
+        Chunk(_type, _status, _data, _crc)
+    { }
+
+    abstract class Chunk
+    {
+        public enum ChType
         {
             None = 0,
             IHDR = 0x49484452,
@@ -134,34 +186,53 @@ public class PNG : Image
             IEND = 0x49454E44,
         }
 
+        static readonly Dictionary<ChType, Type> classMap = new() {
+        {ChType.None, typeof(NoneChunk)},
+        {ChType.IHDR, typeof(IHDRChunk)},
+        {ChType.IDAT, typeof(IDATChunk)},
+        {ChType.IEND, typeof(IENDChunk)},
+    };
+
         public enum Status
         {
             None = 0,
             OK = 1,
             TypeNotSupported = 2,
             CRC32Mismatch = 4,
-            CRC8 = 8,
-            CRC16 = 16,
         }
 
-        readonly Type type;
+        readonly ChType type;
         readonly ArraySegment<byte> data;
         readonly int crc;
         readonly int status;
 
-        internal Chunk(int _type, ArraySegment<byte> _data, int _crc)
+        static public Chunk Create(int _type, ArraySegment<byte> _data, int _crc)
         {
+            ChType type;
+            int status = (int)Status.None;
 
-            if (!Enum.IsDefined(typeof(Type), _type))
+            if (!Enum.IsDefined(typeof(ChType), _type))
             {
-                type = Type.None;
-                Utils.Log($"Chunk.Ctor : chunk type '{_type:X}' not supported, skipping");
+                type = ChType.None;
+                Utils.Log($"Chunk.Create : chunk type '{_type:X}' not supported");
                 status |= (int)Status.TypeNotSupported;
             } else
             {
-                type = (Type)_type;
+                type = (ChType)_type;
             }
 
+            Type clsType = classMap[type];
+
+            var obj = Activator.CreateInstance(clsType, new object[] { type, status, _data, _crc });
+
+            return obj == null ? throw new Exception
+                ($"Chunk.Create : couldn't create instance of type '{clsType}'") : (Chunk)obj;
+        }
+
+        public Chunk(ChType _chType, int _status, ArraySegment<byte> _data, int _crc)
+        {
+            type = _chType;
+            status = _status;
             data = _data;
             crc = _crc;
             status |= (int)CheckCrc();
@@ -182,6 +253,8 @@ public class PNG : Image
             return status;
         }
 
+        virtual protected string ParsedData() => "";
+
         public override string ToString()
         {
             var beg = data.Offset;
@@ -191,6 +264,13 @@ public class PNG : Image
             var raw = arr == null ? "" : len <= 8 ? BitConverter.ToString(arr, beg, len) :
             BitConverter.ToString(arr, beg, 4) + " .. " + BitConverter.ToString(arr, end - 4, 4);
 
+            var parsedData = ParsedData();
+            var parsedDataStr = parsedData == "" ? "" :
+                $"""
+                parsed data
+                {parsedData}
+                """;
+
             return
             $"""
             type: {type}
@@ -198,14 +278,14 @@ public class PNG : Image
             raw data: {raw.Replace("-", " ")}
             crc: {crc:X}
             status: {Utils.IntBitsToEnums(status, typeof(Status))}
-
+            {parsedDataStr}
             """;
         }
     }
 
     class ByteFilter
     {
-        public enum Type
+        public enum BFType
         {
             None = 0,
             Sub = 1,
@@ -233,28 +313,28 @@ public class PNG : Image
         /// </summary>
         /// <param name="args">[(0)x - current byte, a(1) - left byte, b(2) - up byte, c(3) - up left byte]</param>
         /// <returns></returns>
-        static public byte Encode(Type type, params int[] args)
+        static public byte Encode(BFType type, params int[] args)
         {
             return type switch
             {
-                Type.None => (byte)args[0],
-                Type.Sub => (byte)(args[0] - args[1]),
-                Type.Up => (byte)(args[0] - args[2]),
-                Type.Average => (byte)(args[0] - (args[1] + args[2]) / 2),
-                Type.Paeth => (byte)(args[0] - PaethPredictor(args[1], args[2], args[3])),
+                BFType.None => (byte)args[0],
+                BFType.Sub => (byte)(args[0] - args[1]),
+                BFType.Up => (byte)(args[0] - args[2]),
+                BFType.Average => (byte)(args[0] - (args[1] + args[2]) / 2),
+                BFType.Paeth => (byte)(args[0] - PaethPredictor(args[1], args[2], args[3])),
                 _ => 0,
             };
         }
 
-        static public byte Decode(Type type, params int[] args)
+        static public byte Decode(BFType type, params int[] args)
         {
             return type switch
             {
-                Type.None => (byte)args[0],
-                Type.Sub => (byte)(args[0] + args[1]),
-                Type.Up => (byte)(args[0] + args[2]),
-                Type.Average => (byte)(args[0] + (args[1] + args[2]) / 2),
-                Type.Paeth => (byte)(args[0] + PaethPredictor(args[1], args[2], args[3])),
+                BFType.None => (byte)args[0],
+                BFType.Sub => (byte)(args[0] + args[1]),
+                BFType.Up => (byte)(args[0] + args[2]),
+                BFType.Average => (byte)(args[0] + (args[1] + args[2]) / 2),
+                BFType.Paeth => (byte)(args[0] + PaethPredictor(args[1], args[2], args[3])),
                 _ => 0,
             };
         }
