@@ -5,6 +5,29 @@ using System.Numerics;
 
 namespace utils;
 
+public static class ArraySegmentExtensions
+{
+    public static string SneakPeek(this ArraySegment<byte> segm, int depth = 4)
+    {
+        var beg = segm.Offset;
+        var len = segm.Count;
+        var end = beg + len;
+        var arr = segm.Array;
+        var outp = arr == null ? "" : len <= 2 * depth ? BitConverter.ToString(arr, beg, len) :
+        BitConverter.ToString(arr, beg, depth) + " .. " + BitConverter.ToString(arr, end - depth, depth);
+        return outp.Replace("-", " ");
+    }
+}
+
+public static class ByteArrayExtensions 
+{
+    public static string HexStr(this byte[] bytes , string fmt = " ")
+    {
+        string hex = BitConverter.ToString(bytes);
+        return hex.Replace("-", fmt);
+    }
+}
+
 public static class IntExtensions
 {
     static readonly bool isLE = BitConverter.IsLittleEndian;
@@ -22,6 +45,13 @@ public static class IntExtensions
     {
         int memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
         return BitConverter.GetBytes(memLayoutLE);
+    }
+
+    public static string MemHexStr(this int val, string fmt = " ")
+    {
+        var bytes = BitConverter.GetBytes(val);
+        string hex = BitConverter.ToString(bytes);
+        return hex.Replace("-", fmt);
     }
 }
 

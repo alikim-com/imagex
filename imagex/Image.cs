@@ -26,6 +26,16 @@ public class PNG : Image
 
     static readonly bool isLE = BitConverter.IsLittleEndian;
 
+    public enum CompressionMethod
+    {
+        Deflate = 0
+    }
+
+    public enum FilterMethod
+    {
+        Adaptive = 0
+    }
+
     public enum ColorType
     {
         Greyscale = 0,
@@ -93,6 +103,8 @@ public class PNG : Image
         if (sig != SIG) throw new Exception
                 ($"PNG.FromFile : bad file signature '{sig:X}'");
 
+        //  TO PARALLEL Tasks
+
         // find chunks
         offset = 8;
         List<Chunk> chList = [];
@@ -134,8 +146,8 @@ public class PNG : Image
         public readonly int height;
         public readonly byte bitDepth;
         public readonly byte cType;
-        public readonly byte compression; // 0
-        public readonly byte filter; // 0
+        public readonly byte compression; // 0 - deflate image compression 
+        public readonly byte filter; // 0 - adaptive with 5 byte filters
         public readonly byte interlaced;
 
         public IHDRChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
@@ -165,10 +177,46 @@ public class PNG : Image
 
     class IDATChunk : Chunk
     {
+        // https://datatracker.ietf.org/doc/html/rfc1950#page-4
+        public readonly byte compression; // chunk compression, 8 - deflate
+        public readonly int windowSize;  // for deflate only
+        public readonly byte fcheck;
+        public readonly bool fdict;
+        public readonly byte flevel;
+        public readonly int presetDict;
+        public readonly ArraySegment<byte> comprData;
+        public readonly int Adler32Checksum;
+
         public IDATChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
             base(_type, _status, _data, _crc)
         {
+            compression = (byte)(_data[0] & 0b0000_1111);
+            windowSize = 2 << ((_data[0] >> 4) + 8 - 1); // pow(2, n + 8)
+            fcheck = (byte)(_data[1] & 0b0001_1111);
+            fdict = ((_data[1] & 0b0010_0000) >> 5) != 0;
+            flevel = (byte)((_data[1] & 0b1100_0000) >> 6);
 
+            if (fdict) presetDict = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(2));
+            // [1,1,data,4] = _data.Count
+            comprData = _data.Slice(fdict ? 6 : 2, _data.Count - 6);
+            Adler32Checksum = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(_data.Count - 4));
+        }
+
+        protected override string ParsedData()
+        {
+            var dict = !fdict ? "none" : $"{presetDict:X8}";
+
+            return
+            $"""
+              compression: {compression}
+              windowSize: {windowSize}
+              compr. level: {flevel}
+              fcheck: {fcheck}
+              dictionary: {dict}
+              compr. data: {comprData.SneakPeek()}
+              checksum: {Adler32Checksum:X8}
+
+            """;
         }
     }
 
@@ -257,13 +305,7 @@ public class PNG : Image
 
         public override string ToString()
         {
-            var beg = data.Offset;
-            var len = data.Count;
-            var end = beg + len;
-            var arr = data.Array;
-            var raw = arr == null ? "" : len <= 8 ? BitConverter.ToString(arr, beg, len) :
-            BitConverter.ToString(arr, beg, 4) + " .. " + BitConverter.ToString(arr, end - 4, 4);
-
+            var raw = data.SneakPeek();
             var parsedData = ParsedData();
             var parsedDataStr = parsedData == "" ? "" :
                 $"""
@@ -274,9 +316,9 @@ public class PNG : Image
             return
             $"""
             type: {type}
-            length: {len}
-            raw data: {raw.Replace("-", " ")}
-            crc: {crc:X}
+            length: {data.Count}
+            raw data: {raw}
+            crc: {crc:X8}
             status: {Utils.IntBitsToEnums(status, typeof(Status))}
             {parsedDataStr}
             """;
