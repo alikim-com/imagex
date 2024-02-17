@@ -73,6 +73,46 @@ public class PNG : Image
     public readonly int bitsPerPixel;
     public readonly byte[] PixelData;
 
+    static bool ValidateFormat(IHDRChunk hdrCh, out string msg)
+    {
+        msg = "";
+
+        if ((CompressionMethod)hdrCh.compression != CompressionMethod.Deflate || 
+            (FilterMethod)hdrCh.filter != FilterMethod.Adaptive)
+        {
+            msg = "Wrong compression/filter value";
+            return false;
+        }
+
+        if (hdrCh.width <= 0 || hdrCh.height <=0)
+        {
+            msg = "Bad width/height";
+            return false;
+        }
+
+        if (hdrCh.interlaced != 0)
+        {
+            msg = "Interlace data is not supported";
+            return false;
+        }
+
+        if(!Enum.IsDefined(typeof(ColorType), hdrCh.cType))
+        {
+            msg = $"Bad color type '{hdrCh.cType}'";
+            return false;
+        }
+
+        var cType = (ColorType)hdrCh.cType;
+
+        if (!allowedBitDepths[cType].Contains(hdrCh.bitDepth))
+        {
+            msg = $"PNG.Ctor : depth value '{hdrCh.bitDepth}' is not supported for '{cType}'";
+            return false;
+        }
+
+        return true;
+    }
+
     public PNG(
         ColorType _ctype,
         int _bitDepth,
@@ -81,13 +121,7 @@ public class PNG : Image
         byte[]? pixelData) : base(Format.PNG, _width, _height)
     {
 
-        ctype = _ctype;
-        if (!allowedBitDepths[ctype].Contains(_bitDepth)) throw new NotImplementedException
-                ($"PNG.Ctor : depth value '{_bitDepth}' is not supported for '{_ctype}'");
-
-        bitDepth = _bitDepth;
-        var numChann = channels[ctype];
-        bitsPerPixel = _width * _height * numChann * bitDepth;
+        
 
         PixelData = pixelData ?? new byte[bitsPerPixel];
     }
@@ -104,7 +138,7 @@ public class PNG : Image
         if (sig != SIG) throw new Exception
                 ($"PNG.FromFile : bad file signature '{sig:X}'");
 
-        //  TO PARALLEL Tasks
+        //  TO PARALLEL Tasks Async
 
         // find chunks
         offset = 8;
@@ -127,14 +161,46 @@ public class PNG : Image
             offset += 12 + chLen;
         }
 
+        Console.WriteLine();
         foreach (var chunk in chList) Utils.Log(chunk.ToString());
 
+        IHDRChunk? hdrCh = null;
+        var decompDataStream = new MemoryStream();
+
+        foreach (var chunk in chList)
+            if (chunk is IHDRChunk _hdrCh)
+                if (!ValidateFormat(_hdrCh, out string msg))
+                {
+                    throw new Exception
+                        ($"PNG.FromFile : file '{Path.Combine(path, fname)}' didn't validate. '{msg}'");
+                } 
+                else
+                {
+                    hdrCh = _hdrCh;
+                }
+            else if (chunk is IDATChunk datCh) 
+                decompDataStream.Write(datCh.decomprData);
+
+        if (hdrCh == null) throw new InvalidDataException
+                ($"PNG.FromFile : IHDR chunk not found in file '{Path.Combine(path, fname)}'");
+
+        var cType = (ColorType)hdrCh.cType;
+        var numChan = channels[cType];
+        var bitsPerPixel = numChan * hdrCh.bitDepth;
+        var scanlineBytelen = bitsPerPixel * hdrCh.width;
+
+        // byte[]/stream ProcessScanlines()
+        // MAKE SCANLINES streams vs arraysegments ?
+        // unfilter
+
+        //Utils.Log(decompDataStream.GetBuffer().HexStr());
+
         return new PNG(
-        ColorType.Truecolour,
-        8,
-        1,
-        1,
-        [0, 0, 0, 0]);
+            ColorType.Truecolour,
+            8,
+            1,
+            1,
+            [0, 0, 0, 0]); // bool validate format = false
     }
 
     class NoneChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
@@ -146,7 +212,7 @@ public class PNG : Image
         public readonly int width = BinaryPrimitives.ReadInt32BigEndian(_data);
         public readonly int height = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(4));
         public readonly byte bitDepth = _data[8];
-        public readonly byte cType = _data[9];
+        public readonly int cType = _data[9];
         public readonly byte compression = _data[10]; // 0 - deflate image compression 
         public readonly byte filter = _data[11]; // 0 - adaptive with 5 byte filters
         public readonly byte interlaced = _data[12];
@@ -159,7 +225,7 @@ public class PNG : Image
           cType: {cType}
           compression: {compression}
           filter: {filter}
-          interlaced: {filter}
+          interlaced: {interlaced}
 
         """;
     }
@@ -167,15 +233,15 @@ public class PNG : Image
     class IDATChunk : Chunk
     {
         // https://datatracker.ietf.org/doc/html/rfc1950#page-4
-        public readonly byte compression; // chunk compression, 8 - deflate
-        public readonly int windowSize;  // for deflate only
-        public readonly byte fcheck;
-        public readonly bool fdict;
-        public readonly byte flevel;
-        public readonly int presetDict;
-        public readonly ArraySegment<byte> comprData;
-        public readonly byte[] decomprData; 
-        public readonly int Adler32Checksum;
+        readonly byte compression; // chunk compression, 8 - deflate
+        readonly int windowSize;  // for deflate only
+        readonly byte fcheck;
+        readonly bool fdict;
+        readonly byte flevel;
+        readonly int presetDict;
+        readonly ArraySegment<byte> comprData;
+        public readonly byte[] decomprData;
+        readonly int Adler32Checksum;
 
         public IDATChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
             base(_type, _status, _data, _crc)
@@ -254,7 +320,7 @@ public class PNG : Image
             CRC32Mismatch = 4,
         }
 
-        readonly ChType type;
+        public readonly ChType type;
         readonly ArraySegment<byte> data;
         readonly int crc;
         readonly int status;
@@ -267,7 +333,7 @@ public class PNG : Image
             if (!Enum.IsDefined(typeof(ChType), _type))
             {
                 type = ChType.None;
-                Utils.Log($"Chunk.Create : chunk type '{_type:X}' not supported");
+                Utils.Log($"Chunk.Create : chunk type '{_type:X}({_type.ToText()})' not supported");
                 status |= (int)Status.TypeNotSupported;
             } else
             {

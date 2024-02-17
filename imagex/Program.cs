@@ -69,7 +69,7 @@ internal class Program
     {
         var png = PNG.FromFile(
             "../../../testImages",
-            "redDot_1x1.png");
+            "rgb_3x3.png");
     }
 
     static void TestSpeed()
