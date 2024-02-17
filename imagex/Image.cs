@@ -3,6 +3,7 @@
 
 
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.IO.Hashing;
 
 namespace imagex;
@@ -140,27 +141,15 @@ public class PNG : Image
         Chunk(_type, _status, _data, _crc)
     { }
 
-    class IHDRChunk : Chunk
+    class IHDRChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) : Chunk(_type, _status, _data, _crc)
     {
-        public readonly int width;
-        public readonly int height;
-        public readonly byte bitDepth;
-        public readonly byte cType;
-        public readonly byte compression; // 0 - deflate image compression 
-        public readonly byte filter; // 0 - adaptive with 5 byte filters
-        public readonly byte interlaced;
-
-        public IHDRChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
-            base(_type, _status, _data, _crc)
-        {
-            width = BinaryPrimitives.ReadInt32BigEndian(_data);
-            height = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(4));
-            bitDepth = _data[8];
-            cType = _data[9];
-            compression = _data[10];
-            filter = _data[11];
-            interlaced = _data[12];
-        }
+        public readonly int width = BinaryPrimitives.ReadInt32BigEndian(_data);
+        public readonly int height = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(4));
+        public readonly byte bitDepth = _data[8];
+        public readonly byte cType = _data[9];
+        public readonly byte compression = _data[10]; // 0 - deflate image compression 
+        public readonly byte filter = _data[11]; // 0 - adaptive with 5 byte filters
+        public readonly byte interlaced = _data[12];
 
         protected override string ParsedData() =>
         $"""
@@ -185,6 +174,7 @@ public class PNG : Image
         public readonly byte flevel;
         public readonly int presetDict;
         public readonly ArraySegment<byte> comprData;
+        public readonly byte[] decomprData; 
         public readonly int Adler32Checksum;
 
         public IDATChunk(ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
@@ -200,6 +190,20 @@ public class PNG : Image
             // [1,1,data,4] = _data.Count
             comprData = _data.Slice(fdict ? 6 : 2, _data.Count - 6);
             Adler32Checksum = BinaryPrimitives.ReadInt32BigEndian(_data.Slice(_data.Count - 4));
+
+            decomprData = Decompress(comprData);
+        }
+
+        byte[] Decompress(ArraySegment<byte> _data)
+        {
+            if (_data.Array == null) return [];
+            using var iStream = new MemoryStream();
+            using var oStream = new MemoryStream();
+            iStream.Write(_data.Array, _data.Offset, _data.Count);
+            iStream.Position = 0;
+            using var decompressor = new DeflateStream(iStream, CompressionMode.Decompress);
+            decompressor.CopyTo(oStream);
+            return oStream.ToArray();
         }
 
         protected override string ParsedData()
@@ -210,11 +214,12 @@ public class PNG : Image
             $"""
               compression: {compression}
               windowSize: {windowSize}
-              compr. level: {flevel}
+              compr.level: {flevel}
               fcheck: {fcheck}
               dictionary: {dict}
-              compr. data: {comprData.SneakPeek()}
+              compr.data: {comprData.SneakPeek()}
               checksum: {Adler32Checksum:X8}
+              decompr.data: {decomprData.SneakPeek()}
 
             """;
         }

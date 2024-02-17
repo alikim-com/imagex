@@ -21,10 +21,18 @@ public static class ArraySegmentExtensions
 
 public static class ByteArrayExtensions 
 {
-    public static string HexStr(this byte[] bytes , string fmt = " ")
+    public static string HexStr(this byte[] bytes, string fmt = " ")
     {
         string hex = BitConverter.ToString(bytes);
         return hex.Replace("-", fmt);
+    }
+
+    public static string SneakPeek(this byte[] arr, int depth = 4)
+    {
+        var len = arr.Length;
+        var outp = arr == null ? "" : len <= 2 * depth ? BitConverter.ToString(arr, 0, len) :
+        BitConverter.ToString(arr, 0, depth) + " .. " + BitConverter.ToString(arr, len - depth, depth);
+        return outp.Replace("-", " ");
     }
 }
 
