@@ -3,6 +3,7 @@
 
 
 using System.Buffers.Binary;
+using System.IO;
 using System.IO.Compression;
 using System.IO.Hashing;
 
@@ -113,6 +114,39 @@ public class PNG : Image
         return true;
     }
 
+    static void DecodeScanlines(
+        byte[] buffer, 
+        byte[] pixelData, 
+        int maxcol,
+        int maxrow)
+    {
+        var off = new int[3]; // [a, b, c] bytes' offsets
+        var args = new int[3]; // [a, b, c] bytes' values
+        Type enmType = typeof(ByteFilter.BFType);
+        ByteFilter.BFType ftype;
+
+        int runner = 0;
+        int rowoff = 0;
+        for(int row = 0; row < maxrow; row++)
+        {
+            var filter = buffer[rowoff];
+            if (!Enum.IsDefined(enmType, filter))
+            {
+                throw new InvalidDataException
+                ($"PNG.DecodeScanlines : scanline '{row}' filter '{filter}' not recognized");
+            }
+            ftype = (ByteFilter.BFType)filter;
+            for (int col = rowoff; col < rowoff + maxcol; col++)
+            {
+               // pixelData[runner++] = ByteFilter.Decode(ftype, );
+            }
+
+            rowoff += maxcol;
+        }
+
+        
+    }
+
     public PNG(
         ColorType _ctype,
         int _bitDepth,
@@ -187,13 +221,18 @@ public class PNG : Image
         var cType = (ColorType)hdrCh.cType;
         var numChan = channels[cType];
         var bitsPerPixel = numChan * hdrCh.bitDepth;
-        var scanlineBytelen = bitsPerPixel * hdrCh.width;
+        var scanlineBitLen = bitsPerPixel * hdrCh.width;
+        var wholeBytes = scanlineBitLen / 8;
+        int scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1; 
 
-        // byte[]/stream ProcessScanlines()
-        // MAKE SCANLINES streams vs arraysegments ?
-        // unfilter
+        byte[] pixelData = new byte[scanlineBytelen * hdrCh.height];
 
-        //Utils.Log(decompDataStream.GetBuffer().HexStr());
+        // first byte is filter type, hence +1
+        DecodeScanlines(
+            decompDataStream.GetBuffer(), 
+            pixelData, 
+            scanlineBytelen + 1, 
+            hdrCh.height - 1);
 
         return new PNG(
             ColorType.Truecolour,
