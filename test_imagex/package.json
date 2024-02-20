@@ -1,0 +1,38 @@
+{
+  "name": "imagex_tester",
+  "version": "1.0.0",
+  "description": "Aux module to test imagex intermediate format (Electron.js)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package": "electron-forge package",
+    "make": "electron-forge make"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alikim-com/imagex.git"
+  },
+  "keywords": [
+    "imagex",
+    "electron"
+  ],
+  "author": "alikim.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/alikim-com/imagex/issues"
+  },
+  "homepage": "https://github.com/alikim-com/imagex#readme",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.2.0",
+    "@electron-forge/maker-deb": "^7.2.0",
+    "@electron-forge/maker-rpm": "^7.2.0",
+    "@electron-forge/maker-squirrel": "^7.2.0",
+    "@electron-forge/maker-zip": "^7.2.0",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.2.0",
+    "electron": "^28.2.3"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.0"
+  }
+}
