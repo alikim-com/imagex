@@ -2,6 +2,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Xml.Linq;
 
 namespace test;
 
@@ -62,6 +63,8 @@ class Program
             pixelData,
             scanlineBytelen + 1,
             hdrCh.height);
+
+        Utils.WriteFileBytes(path, fname + ".xdat", pixelData);
     }
 
     static byte[] Decompress(ArraySegment<byte> _data)
@@ -120,7 +123,7 @@ class Program
     static void DecodeScanlines(
         byte[] buffer,
         byte[] pixelData,
-        int lineLen, // includes 1byte of filter type
+        int lineLen, // includes 1 byte of filter type
         int height)
     {
         string msg = "";
@@ -228,8 +231,7 @@ class ByteFilter
         switch (ftype)
         {
             case BFType.None:
-                // SKIP FILTER BYTE
-                Array.Copy(lines, lnOff, pixelData, pdOff, len);
+                Array.Copy(lines, lnOff + 1, pixelData, pdOff, len - 1);
                 break;
 
             case BFType.Sub:
@@ -244,8 +246,7 @@ class ByteFilter
             case BFType.Up:
                 if(lnOff == 0) // topmost scanline
                 {
-                    // SKIP FILTER BYTE
-                    Array.Copy(lines, lnOff, pixelData, pdOff, len);
+                    Array.Copy(lines, lnOff + 1, pixelData, pdOff, len - 1);
                     break;
                 }
                 upOff = lnOff - len;
@@ -335,6 +336,18 @@ class Utils
         {
             Log($"Utils.ReadFile : exception '{ex.Message}'");
             return Array.Empty<byte>();
+        }
+    }
+
+    static public void WriteFileBytes(string path, string name, byte[] outp)
+    {
+        try
+        {
+            File.WriteAllBytes(Path.Combine(path, name), outp);
+        }
+        catch (Exception ex)
+        {
+            Log($"Utils.WriteFile : exception '{ex.Message}'");
         }
     }
 
