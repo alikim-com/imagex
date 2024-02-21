@@ -8,5 +8,11 @@ const html = getHTML();
 
 html.btn_fileopen.addEventListener('click', async () => {
    const filePath = await window.electronAPI.openFile();
-   info.innerText = filePath;
+   html.info.innerText = filePath;
 });
+
+window.electronAPI.onFilePath((value) => {
+   html.info.innerText = value;
+   // resp
+   //window.electronAPI.counterValue(newValue);
+ });

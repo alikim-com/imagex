@@ -1,7 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-   openFile: () => ipcRenderer.invoke('dialog:openFile')
+   setTitle: (title) => ipcRenderer.send('set-title', title),
+   //openFile: () => ipcRenderer.invoke('dialog:openFile'),
+   // resp
+   //counterValue: (value) => ipcRenderer.send('counter-value', value),
+   onFilePath: (callback) => ipcRenderer.on('fileOpenPath',
+      (_event, value) => callback(value)),
 });
 
 window.addEventListener('DOMContentLoaded', () => {
