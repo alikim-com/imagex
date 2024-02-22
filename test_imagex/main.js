@@ -1,6 +1,14 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 
+const pathToUri = path => {
+   // no encodeURI() - it replaces slashes
+   let outp = '';
+   const repl = ['#'];
+   for (const ch of path)
+      outp += repl.includes(ch) ? '%' + ch.charCodeAt(0).toString(16) : ch;
+   return outp;
+};
 
 const createWindow = () => {
    const mainWindow = new BrowserWindow({
@@ -19,8 +27,10 @@ const createWindow = () => {
                label: 'Open...',
                accelerator: 'CmdOrCtrl+O',
                click: async () => {
-                  const path = await handleFileOpen();
-                  mainWindow.webContents.send('fileOpenPath', path);
+                  const fpath = await handleFileOpen();
+                  const fullPath = `file://${pathToUri(fpath)}`;
+                  const furl = new URL(fullPath);
+                  mainWindow.webContents.send('fileOpenPath', furl.href);
                }
             },
          ]
@@ -37,23 +47,10 @@ const createWindow = () => {
       }
    ]);
    Menu.setApplicationMenu(menu);
-   //const _menu = Menu.getApplicationMenu();
-   //console.log(_menu);
    mainWindow.webContents.openDevTools();
-
-   // resp
-   ipcMain.on('counter-value', (_event, value) => {
-      console.log(value)
-   });
 
    mainWindow.loadFile('index.html');
 };
-
-function handleSetTitle(event, title) {
-   const webContents = event.sender;
-   const win = BrowserWindow.fromWebContents(webContents);
-   win.setTitle(title);
-}
 
 async function handleFileOpen() {
    const { canceled, filePaths } = await dialog.showOpenDialog({});
@@ -66,12 +63,6 @@ app.on('window-all-closed', () => {
 });
 
 app.whenReady().then(() => {
-
-   // renderer to main (one-way)
-   ipcMain.on('set-title', handleSetTitle);
-
-   // renderer to main (two-way)
-   // ipcMain.handle('dialog:openFile', handleFileOpen);
 
    createWindow();
 
