@@ -27,8 +27,9 @@ const drawPixel = (row, col, offX, offY, zoom, iData) => {
 
 const getPixelInfo = (row, col, iData) => {
    const ind = 4 * (row * iw + col);
-   const [r, g, b, a] = iData.slice(ind, ind + 4);
-   return `r: ${r}, g: ${g}, b: ${b}, a: ${a}`;
+   const [r, g, b, a] =
+      Array.from(iData.slice(ind, ind + 4)).map(ch => ch.toString(16).padStart(2, '0'));
+   return `${r} ${g} ${b} ${a}`;
 };
 
 const drawZoomedImg = (offX, offY, iData) => {
@@ -40,17 +41,28 @@ const drawZoomedImg = (offX, offY, iData) => {
    }
 };
 
-window.electronAPI.onFilePath((fpath) => {
-   console.log(`Loading image '${fpath}'`);
-   const img = new Image();
-   img.onload = () => { imgOnload(img) };
-   img.src = fpath;
+window.electronAPI.onFilePath(obj => {
+
+   const fpath = obj.href;
+
+   console.log(`Loading image '${fpath}'...`);
+
+   new Promise(res => {
+      const img = new Image();
+      img.onload = () => { res(img) };
+      img.src = fpath;
+   })
+      .then(imgSrc => { onload(imgSrc, obj.fdat) })
+      .catch(err => { console.error('Loading image failed: ', err) });
 });
 
-const imgOnload = img => {
-   iw = img.width;
-   ih = img.height;
-   ctx.drawImage(img, 0, 0);
+const onload = (imgSrc, fData) => {
+
+   ctx.clearRect(0, 0, canv.width, canv.height);
+
+   iw = imgSrc.width;
+   ih = imgSrc.height;
+   ctx.drawImage(imgSrc, 0, 0);
    const canvData = ctx.getImageData(0, 0, iw, ih);
    iData = canvData.data;
 
@@ -59,10 +71,7 @@ const imgOnload = img => {
    let iOffX = iw + space;
    let iOffY = 0;
    drawZoomedImg(iOffX, iOffY, iData);
-
-   iData2 = new Uint8ClampedArray(iData);
-   for (let i = 0; i < iData2.length; i++)
-      iData2[i] *= 0.99 + 0.01 * Math.random();
+   iData2 = new Uint8ClampedArray(fData);
 
    iOffX += iw * (zoom + gap) + space;
    drawZoomedImg(iOffX, iOffY, iData2);
@@ -75,7 +84,7 @@ const imgOnload = img => {
    for (let i = 0; i < iDataPix.length; i++) {
       const r = 4 * i;
       const a = r + 3;
-      iDataDf[r] = iDataPix[i] == iDataPix2[i] ? 255 : 48;
+      iDataDf[r] = iDataPix[i] == iDataPix2[i] ? 48 : 255;
       iDataDf[a] = 255;
    }
 
@@ -84,16 +93,14 @@ const imgOnload = img => {
 
    const info = document.getElementById('info');
 
-   //const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-
    canv.addEventListener('click', evt => {
       const [x, y] = [evt.clientX, evt.clientY];
       const cRect = canv.getBoundingClientRect();
       if (
-         x < cRect.left ||
-         x > cRect.right ||
-         y < cRect.top ||
-         y > cRect.bottom) return;
+         x < cRect.left + iOffX ||
+         x > cRect.right + iOffX ||
+         y < cRect.top + iOffY ||
+         y > cRect.bottom + iOffY) return;
 
       const [cX, cY] = [
          evt.clientX - cRect.x,
@@ -103,6 +110,6 @@ const imgOnload = img => {
       const iDataPixInf = getPixelInfo(row, col, iData);
       const iDataPixInf2 = getPixelInfo(row, col, iData2);
       info.value =
-         `row: ${row}, col: ${col} (${iDataPixInf}) -> (${iDataPixInf2})`;
+         `row: ${row}, col: ${col}\n\n${iDataPixInf}\n${iDataPixInf2}`;
    });
 };

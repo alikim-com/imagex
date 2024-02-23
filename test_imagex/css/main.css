@@ -14,7 +14,7 @@ body {
       background-color: #ccddee;
       color: #333;
    }
-   input.adaptive {
+   input.adaptive, textarea.adaptive {
       background-color: #c1d3e5;
       color: #064b50;
    }
@@ -24,12 +24,15 @@ body {
    border: solid 1px #800000;
 }
 
-input {
+textarea {
    margin-top: 10px;
    background: #112233;
    border: solid 1px #800000;
    padding: 5px;
    color: #999;
-   font-size: 12px;
-   width: 450px;
+}
+
+#info {
+   width: 500px;
+   height: 120px;
 }

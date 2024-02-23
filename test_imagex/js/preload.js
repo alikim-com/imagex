@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
    onFilePath: (callback) => ipcRenderer.on('fileOpenPath',
-      (_event, value) => callback(value)),
+      (_event, obj) => { callback(obj) }),
 });
 
 window.addEventListener('DOMContentLoaded', () => {

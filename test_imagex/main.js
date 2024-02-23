@@ -1,5 +1,11 @@
-const { app, BrowserWindow, nativeTheme, Menu, ipcMain, dialog } = require('electron');
+const {
+   app, BrowserWindow, nativeTheme, Menu, dialog,
+   ipcMain
+} = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
+
+const [winWidth, winHeight] = [1200, 800];
 
 const pathToUri = path => {
    // no encodeURI() - it replaces slashes
@@ -11,19 +17,18 @@ const pathToUri = path => {
 };
 
 const createWindow = () => {
+
    const mainWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      transparent: true,
+      width: winWidth,
+      height: 1, // mitigate white flash
       webPreferences: {
          preload: path.join(__dirname, './js/preload.js')
       }
    });
 
-   mainWindow.setOpacity(0.1);
-
    mainWindow.once('ready-to-show', () => {
-      mainWindow.setOpacity(1);
+      mainWindow.setSize(winWidth, winHeight);
+      mainWindow.center();
     });
 
    const menu = Menu.buildFromTemplate([
@@ -34,10 +39,29 @@ const createWindow = () => {
                label: 'Open...',
                accelerator: 'CmdOrCtrl+O',
                click: async () => {
-                  const fpath = await handleFileOpen();
-                  const fullPath = `file://${pathToUri(fpath)}`;
+                  const fPath = await handleFileDialog();
+                  if (fPath == '') return;
+
+                  const obj = {href: null, fdat: null};
+
+                  // html img
+                  const fullPath = `file://${pathToUri(fPath)}`;
                   const furl = new URL(fullPath);
-                  mainWindow.webContents.send('fileOpenPath', furl.href);
+                  obj.href = furl.href;
+
+                  // byte array
+                  const dPath = fPath + '.xdat';
+                  console.log(`Reading data file '${dPath}'...`);
+                  fs.readFile(dPath, (err, buff) => {
+                     if (err) {
+                        console.error('Error reading file:', err);
+                        return;
+                     }
+                     const byteArr = Array.from(buff); 
+                     obj.fdat = byteArr;
+
+                     mainWindow.webContents.send('fileOpenPath', obj);
+                  });                 
                }
             },
          ]
@@ -49,6 +73,11 @@ const createWindow = () => {
                label: 'Reload page',
                accelerator: 'CmdOrCtrl+R',
                click: () => { mainWindow.webContents.reload() }
+            },
+            {
+               label: 'Toggle DevTools',
+               accelerator: 'CmdOrCtrl+Shift+I',
+               click: () => { mainWindow.webContents.toggleDevTools() }
             }
          ]
       },
@@ -78,10 +107,10 @@ const createWindow = () => {
    mainWindow.loadFile('index.html');
 };
 
-async function handleFileOpen() {
+async function handleFileDialog() {
    const { canceled, filePaths } = await dialog.showOpenDialog({});
    if (!canceled) return filePaths[0];
-   return [];
+   return '';
 }
 
 app.on('window-all-closed', () => {
