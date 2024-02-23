@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, nativeTheme, Menu, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 
 const pathToUri = path => {
@@ -14,10 +14,17 @@ const createWindow = () => {
    const mainWindow = new BrowserWindow({
       width: 1200,
       height: 800,
+      transparent: true,
       webPreferences: {
          preload: path.join(__dirname, './js/preload.js')
       }
    });
+
+   mainWindow.setOpacity(0.1);
+
+   mainWindow.once('ready-to-show', () => {
+      mainWindow.setOpacity(1);
+    });
 
    const menu = Menu.buildFromTemplate([
       {
@@ -44,9 +51,28 @@ const createWindow = () => {
                click: () => { mainWindow.webContents.reload() }
             }
          ]
+      },
+      {
+         label: 'Theme',
+         submenu: [
+            {
+               label: 'Dark',
+               click: () => { nativeTheme.themeSource = 'dark'}
+            },
+            {
+               label: 'Light',
+               click: () => { nativeTheme.themeSource = 'light'}
+            },
+            {
+               label: 'System',
+               click: () => { nativeTheme.themeSource = 'system'}
+            }
+         ]
       }
    ]);
+   
    Menu.setApplicationMenu(menu);
+   
    mainWindow.webContents.openDevTools();
 
    mainWindow.loadFile('index.html');
@@ -61,6 +87,8 @@ async function handleFileOpen() {
 app.on('window-all-closed', () => {
    if (process.platform !== 'darwin') app.quit()
 });
+
+nativeTheme.themeSource = 'dark';
 
 app.whenReady().then(() => {
 

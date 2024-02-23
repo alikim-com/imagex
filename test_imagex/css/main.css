@@ -9,6 +9,17 @@ body {
    font-size: 12px;
 }
 
+@media (prefers-color-scheme: light) {
+   body.adaptive {
+      background-color: #ccddee;
+      color: #333;
+   }
+   input.adaptive {
+      background-color: #c1d3e5;
+      color: #064b50;
+   }
+ }
+
 #mainCanvas {
    border: solid 1px #800000;
 }

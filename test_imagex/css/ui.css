@@ -57,7 +57,7 @@ input:not([type="checkbox"]) {
 	border: 1px solid #1f5169;
 	background-color: #183048;
 	color: #00ddee;
-	padding-top: 2px;
+	padding-top: 5px;
 }
 
 select {
