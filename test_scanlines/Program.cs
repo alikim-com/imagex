@@ -2,7 +2,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Compression;
-using System.Xml.Linq;
 
 namespace test;
 
@@ -64,7 +63,15 @@ class Program
             scanlineBytelen + 1,
             hdrCh.height);
 
-        Utils.WriteFileBytes(path, fname + ".xdat", pixelData);
+        byte[][] xData = new byte[][]
+        {
+            hdrCh.width.BytesRightToLeft(),
+            hdrCh.height.BytesRightToLeft(),
+            new byte[] { (byte)numChan, (byte)hdrCh.bitDepth, 0, 0 },
+            pixelData
+        };
+
+        Utils.WriteFileBytes(path, fname + ".xdat", xData);
     }
 
     static byte[] Decompress(ArraySegment<byte> _data)
@@ -339,6 +346,22 @@ class Utils
         }
     }
 
+    static public void WriteFileBytes(string path, string name, byte[][] outp)
+    {
+        try
+        {
+            using var fileStream = new FileStream(Path.Combine(path, name), FileMode.Create);
+            using var writer = new BinaryWriter(fileStream);
+                
+            foreach (var byteArr in outp)
+                writer.Write(byteArr);
+        }
+        catch (Exception ex)
+        {
+            Log($"Utils.WriteAllBytes : exception '{ex.Message}'");
+        }
+    }
+
     static public void WriteFileBytes(string path, string name, byte[] outp)
     {
         try
@@ -347,7 +370,7 @@ class Utils
         }
         catch (Exception ex)
         {
-            Log($"Utils.WriteFile : exception '{ex.Message}'");
+            Log($"Utils.WriteAllBytes : exception '{ex.Message}'");
         }
     }
 
