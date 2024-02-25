@@ -57,8 +57,7 @@ const createWindow = () => {
                         console.error('Error reading file:', err);
                         return;
                      }
-                     const byteArr = Array.from(buff); 
-                     obj.fdat = byteArr;
+                     obj.fdat = new Uint8ClampedArray(buff);
 
                      mainWindow.webContents.send('fileOpenPath', obj);
                   });                 

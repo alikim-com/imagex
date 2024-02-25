@@ -41,6 +41,46 @@ const drawZoomedImg = (offX, offY, iData) => {
    }
 };
 
+const readInt32BigEndian = (byteArr, off) => 
+   (byteArr[off] << 24) |
+   (byteArr[off + 1] << 16) |
+   (byteArr[off + 2] << 8) |
+    byteArr[off + 3];
+
+const serialiseToRGBA = fData => {
+   const iw = readInt32BigEndian(fData, 0);
+   const ih = readInt32BigEndian(fData, 4);
+   const numChan = fData[8];
+   const bitDepth = fData[9];
+   const bitsPerPixel = numChan * bitDepth;
+
+   const serData = new Uint8ClampedArray(iw * ih * 4);
+
+   const pixData = fData.subarray(12);
+   
+   if (bitDepth == 8) {
+      if (numChan == 4) {
+         serData.set(pixData);
+      }
+      else if (numChan == 3) {
+         let cnt = 0;
+         for (let i = 0; i < pixData.length; i += 3) {
+            serData[cnt] = pixData[i];
+            serData[cnt + 1] = pixData[i + 1];
+            serData[cnt + 2] = pixData[i + 2];
+            serData[cnt + 3] = 255;
+            cnt += 4;
+         }
+      }
+   }
+
+   return serData;
+
+   //var scanlineBitLen = bitsPerPixel * hdrCh.width;
+   //var wholeBytes = scanlineBitLen / 8;
+   //int scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1;
+};
+
 window.electronAPI.onFilePath(obj => {
 
    const fpath = obj.href;
@@ -71,9 +111,12 @@ const onload = (imgSrc, fData) => {
    let iOffX = iw + space;
    let iOffY = 0;
    drawZoomedImg(iOffX, iOffY, iData);
-   iData2 = new Uint8ClampedArray(fData);
 
-   iOffX += iw * (zoom + gap) + space;
+   iData2 = serialiseToRGBA(fData);
+
+   const iwZoomed = iw * (zoom + gap);
+   const ihZoomed = ih * (zoom + gap);
+   iOffX += iwZoomed + space;
    drawZoomedImg(iOffX, iOffY, iData2);
 
    const iDataPix = new Int32Array(iData.buffer);
@@ -88,7 +131,7 @@ const onload = (imgSrc, fData) => {
       iDataDf[a] = 255;
    }
 
-   iOffX += iw * (zoom + gap) + space;
+   iOffX += iwZoomed + space;
    drawZoomedImg(iOffX, iOffY, iDataDf);
 
    const info = document.getElementById('info');
@@ -96,11 +139,12 @@ const onload = (imgSrc, fData) => {
    canv.addEventListener('click', evt => {
       const [x, y] = [evt.clientX, evt.clientY];
       const cRect = canv.getBoundingClientRect();
-      if (
-         x < cRect.left + iOffX ||
-         x > cRect.right + iOffX ||
-         y < cRect.top + iOffY ||
-         y > cRect.bottom + iOffY) return;
+      const dfLeft = cRect.left + iOffX;
+      const dfTop = cRect.top + iOffY;
+      const dfRight = dfLeft + iwZoomed;
+      const dfBottom = dfTop + ihZoomed;
+
+      if (x < dfLeft || x > dfRight || y < dfTop || y > dfBottom) return;
 
       const [cX, cY] = [
          evt.clientX - cRect.x,
