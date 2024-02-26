@@ -3,7 +3,6 @@
 
 
 using System.Buffers.Binary;
-using System.IO;
 using System.IO.Compression;
 using System.IO.Hashing;
 
@@ -115,36 +114,48 @@ public class PNG : Image
     }
 
     static void DecodeScanlines(
-        byte[] buffer, 
-        byte[] pixelData, 
-        int maxcol,
-        int maxrow)
+        byte[] buffer,
+        byte[] pixelData,
+        int lineLen, // includes 1 byte of filter type
+        int height)
     {
-        var off = new int[3]; // [a, b, c] bytes' offsets
-        var args = new int[3]; // [a, b, c] bytes' values
-        Type enmType = typeof(ByteFilter.BFType);
-        ByteFilter.BFType ftype;
 
-        int runner = 0;
-        int rowoff = 0;
-        for(int row = 0; row < maxrow; row++)
+        // Utils.PrintBytes(buffer);
+        // Console.WriteLine("---");
+
+        int row = 0;
+        int off = 1;
+        int pdOff = 0;
+        int lineLenm1 = lineLen - 1;
+
+        bool decoded = ByteFilter.DecodeFirstScanline(
+            new ArraySegment<byte>(buffer, off, lineLenm1),
+            pixelData,
+            out string msg);
+
+        if (!decoded) throw new InvalidDataException(
+            $"PNG.DecodeScanlines : decoding row {row} failed",
+            new Exception(msg));
+
+        while (row < height - 1 && decoded)
         {
-            var filter = buffer[rowoff];
-            if (!Enum.IsDefined(enmType, filter))
-            {
-                throw new InvalidDataException
-                ($"PNG.DecodeScanlines : scanline '{row}' filter '{filter}' not recognized");
-            }
-            ftype = (ByteFilter.BFType)filter;
-            for (int col = rowoff; col < rowoff + maxcol; col++)
-            {
-               // pixelData[runner++] = ByteFilter.Decode(ftype, );
-            }
+            off += lineLen;
+            pdOff += lineLenm1;
+            row++;
 
-            rowoff += maxcol;
+            decoded = ByteFilter.DecodeScanline(
+                new ArraySegment<byte>(buffer, off, lineLenm1),
+                pixelData,
+                pdOff, // offset inside pixelData
+                out msg);
         }
 
-        
+        if (!decoded) throw new InvalidDataException(
+            $"PNG.DecodeScanlines : decoding row {row} failed",
+            new Exception(msg));
+
+        // Utils.PrintBytes(pixelData);
+        // Console.WriteLine("---");
     }
 
     public PNG(
@@ -159,6 +170,8 @@ public class PNG : Image
 
         PixelData = pixelData ?? new byte[bitsPerPixel];
     }
+
+    static readonly int[] filtersFound = new int[5];
 
     public static PNG FromFile(string path, string fname)
     {
@@ -227,12 +240,36 @@ public class PNG : Image
 
         byte[] pixelData = new byte[scanlineBytelen * hdrCh.height];
 
-        // first byte is filter type, hence +1
+        Array.Clear(filtersFound, 0, 5);
+
         DecodeScanlines(
-            decompDataStream.GetBuffer(), 
-            pixelData, 
-            scanlineBytelen + 1, 
-            hdrCh.height - 1);
+            decompDataStream.GetBuffer(),
+            pixelData,
+            scanlineBytelen + 1,
+            hdrCh.height);
+
+        byte[][] xData =
+        [
+            hdrCh.width.BytesRightToLeft(),
+            hdrCh.height.BytesRightToLeft(),
+            [(byte)numChan, hdrCh.bitDepth, 0, 0],
+            pixelData
+        ];
+
+        Utils.WriteFileBytes(path, fname + ".xdat", xData);
+
+        Console.WriteLine("data written to '" + fname + ".xdat'");
+        Console.WriteLine(
+            $"""
+            filter stats:
+            None {filtersFound[0]},
+            Sub {filtersFound[1]},
+            Up {filtersFound[2]},
+            Average {filtersFound[3]},
+            Paeth {filtersFound[4]},
+            -----
+            total lines {filtersFound.Sum()}
+            """);
 
         return new PNG(
             ColorType.Truecolour,
@@ -457,14 +494,24 @@ public class PNG : Image
 
         /// <summary>
         /// scanline filters
-        /// 0 None Filt(x) = Orig(x)   Recon(x) = Filt(x)
-        /// 1 Sub Filt(x) = Orig(x) - Orig(a) Recon(x) = Filt(x) + Recon(a)
-        /// 2 Up Filt(x) = Orig(x) - Orig(b) Recon(x) = Filt(x) + Recon(b)
-        /// 3 Average Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2)	Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
-        /// 4 Paeth Filt(x) = Orig(x) - PaethPredictor(Orig(a), Orig(b), Orig(c))   Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+        /// 0 None Filt(x) = Orig(x)   
+        ///        Recon(x) = Filt(x)
+        ///        
+        /// 1 Sub  Filt(x) = Orig(x) - Orig(a) 
+        ///        Recon(x) = Filt(x) + Recon(a)
+        ///        
+        /// 2 Up   Filt(x) = Orig(x) - Orig(b) 
+        ///        Recon(x) = Filt(x) + Recon(b)
+        ///        
+        /// 3 Average Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2)
+        ///           Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+        ///           
+        /// 4 Paeth   Filt(x) = Orig(x) - PaethPredictor(Orig(a), Orig(b), Orig(c))
+        ///           Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
         /// </summary>
-        /// <param name="args">[(0)x - current byte, a(1) - left byte, b(2) - up byte, c(3) - up left byte]</param>
-        /// <returns></returns>
+        /// <param name="args">
+        /// [(0)x - current byte, a(1) - left byte, b(2) - up byte, c(3) - up left byte]
+        /// </param>
         static public byte Encode(BFType type, params int[] args)
         {
             return type switch
@@ -489,6 +536,133 @@ public class PNG : Image
                 BFType.Paeth => (byte)(args[0] + PaethPredictor(args[1], args[2], args[3])),
                 _ => 0,
             };
+        }
+
+        static public bool DecodeFirstScanline(
+        ArraySegment<byte> line,
+        byte[] pixelData,
+        out string msg)
+        {
+            //Console.WriteLine(line.HexStr());
+            //Console.WriteLine("---");
+
+            byte[] lines = line.Array!;
+            int lnOff = line.Offset;
+            int len = line.Count;
+
+            msg = "";
+            int filter = lines[lnOff - 1];
+            filtersFound[filter]++;
+            if (!Enum.IsDefined(typeof(BFType), filter))
+            {
+                msg = $"ByteFilter.DecodeFirstScanline : filter '{filter}' not recognized";
+                return false;
+            }
+            BFType ftype = (BFType)filter;
+
+            switch (ftype)
+            {
+                case BFType.None:
+                case BFType.Up:
+                    Array.Copy(lines, lnOff, pixelData, 0, len);
+                    break;
+
+                case BFType.Sub:
+                case BFType.Paeth:
+                    pixelData[0] = line[0];
+                    for (int pos = 1; pos < len; pos++)
+                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1]);
+                    break;
+
+                case BFType.Average:
+                    pixelData[0] = line[0];
+                    for (int pos = 1; pos < len; pos++)
+                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1] / 2);
+                    break;
+
+                default:
+                    msg = $"ByteFilter.DecodeFirstScanline : filter '{filter}' processor not found";
+                    return false;
+            };
+
+            return true;
+        }
+
+        static public bool DecodeScanline(
+                ArraySegment<byte> line, // only pixel data
+                byte[] pixelData,
+                int pdOff, // starting offset inside pixelData
+                out string msg)
+        {
+            //Console.WriteLine(line.HexStr());
+            //Console.WriteLine("---");
+
+            byte[] lines = line.Array!;
+            int lnOff = line.Offset;
+            int len = line.Count;
+
+            msg = "";
+            int filter = lines[lnOff - 1];
+            filtersFound[filter]++;
+            if (!Enum.IsDefined(typeof(BFType), filter))
+            {
+                msg = $"ByteFilter.DecodeScanline : filter '{filter}' not recognized";
+                return false;
+            }
+            BFType ftype = (BFType)filter;
+
+            switch (ftype)
+            {
+                case BFType.None:
+                    Array.Copy(lines, lnOff, pixelData, pdOff, len);
+                    break;
+
+                case BFType.Sub:
+                    pixelData[pdOff] = line[0];
+                    for (int pos = 1; pos < len; pos++)
+                    {
+                        int off = pdOff + pos;
+                        pixelData[off] = (byte)(line[pos] + pixelData[off - 1]);
+                    }
+                    break;
+
+                case BFType.Up:
+                    for (int pos = 0; pos < len; pos++)
+                    {
+                        int off = pdOff + pos;
+                        pixelData[off] = (byte)(line[pos] + pixelData[off - len]);
+                    }
+                    break;
+
+                case BFType.Average:
+                    pixelData[pdOff] = (byte)((line[0] + pixelData[pdOff - len]) / 2);
+                    for (int pos = 1; pos < len; pos++)
+                    {
+                        int off = pdOff + pos;
+                        pixelData[off] = (byte)(line[pos] +
+                            (pixelData[off - 1] + pixelData[off - len]) / 2);
+                    }
+                    break;
+
+                case BFType.Paeth:
+                    pixelData[pdOff] = (byte)(line[0] + pixelData[pdOff - len]);
+                    for (int pos = 1; pos < len; pos++)
+                    {
+                        int off = pdOff + pos;
+                        int offUp = off - len;
+                        pixelData[off] = (byte)(line[pos] + PaethPredictor(
+                            pixelData[off - 1],
+                            pixelData[offUp],
+                            pixelData[offUp - 1]));
+                    }
+                    break;
+
+                default:
+                    msg = $"ByteFilter.DecodeScanline : filter '{filter}' processor not found";
+                    return false;
+            };
+
+            return true;
         }
     }
 

@@ -72,6 +72,8 @@ class Program
         };
 
         Utils.WriteFileBytes(path, fname + ".xdat", xData);
+
+       // Utils.PrintBytes(xData);
     }
 
     static byte[] Decompress(ArraySegment<byte> _data)
@@ -97,7 +99,7 @@ class Program
         ArraySegment<byte> segm2 = new(data, 2, 4);
         ArraySegment<byte> segm3 = new(data, 4, 4);
 
-        int crc = 0x11223344;
+        // int crc = 0x11223344;
 
         //List<Chunk> chunks = new() {
         //    Chunk.Create(0x49484452, segm1, crc),
@@ -133,29 +135,43 @@ class Program
         int lineLen, // includes 1 byte of filter type
         int height)
     {
-        string msg = "";
+
+       // Utils.PrintBytes(buffer);
+       // Console.WriteLine("---");
 
         int row = 0;
-        int off = 0;
+        int off = 1;
         int pdOff = 0;
         int lineLenm1 = lineLen - 1;
-        bool decoded = true;
-        while(row < height && decoded)
-        {
-            decoded = ByteFilter.DecodeScanline(
-                new ArraySegment<byte>(buffer, off, lineLen),
-                pixelData,
-                pdOff, // offset inside pixelData
-                out msg);
 
+        bool decoded = ByteFilter.DecodeFirstScanline(
+            new ArraySegment<byte>(buffer, off, lineLenm1),
+            pixelData,
+            out string msg);
+
+        if (!decoded) throw new InvalidDataException(
+            $"PNG.DecodeScanlines : decoding row {row} failed",
+            new Exception(msg));
+
+        while (row < height - 1 && decoded)
+        {
             off += lineLen;
             pdOff += lineLenm1;
             row++;
+
+            decoded = ByteFilter.DecodeScanline(
+                new ArraySegment<byte>(buffer, off, lineLenm1),
+                pixelData,
+                pdOff, // offset inside pixelData
+                out msg);
         }
 
         if (!decoded) throw new InvalidDataException(
             $"PNG.DecodeScanlines : decoding row {row} failed",
             new Exception(msg));
+
+        // Utils.PrintBytes(pixelData);
+        // Console.WriteLine("---");
     }
 
 }
@@ -182,14 +198,24 @@ class ByteFilter
 
     /// <summary>
     /// scanline filters
-    /// 0 None Filt(x) = Orig(x)   Recon(x) = Filt(x)
-    /// 1 Sub Filt(x) = Orig(x) - Orig(a) Recon(x) = Filt(x) + Recon(a)
-    /// 2 Up Filt(x) = Orig(x) - Orig(b) Recon(x) = Filt(x) + Recon(b)
-    /// 3 Average Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2)	Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
-    /// 4 Paeth Filt(x) = Orig(x) - PaethPredictor(Orig(a), Orig(b), Orig(c))   Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+    /// 0 None Filt(x) = Orig(x)   
+    ///        Recon(x) = Filt(x)
+    ///        
+    /// 1 Sub  Filt(x) = Orig(x) - Orig(a) 
+    ///        Recon(x) = Filt(x) + Recon(a)
+    ///        
+    /// 2 Up   Filt(x) = Orig(x) - Orig(b) 
+    ///        Recon(x) = Filt(x) + Recon(b)
+    ///        
+    /// 3 Average Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2)
+    ///           Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+    ///           
+    /// 4 Paeth   Filt(x) = Orig(x) - PaethPredictor(Orig(a), Orig(b), Orig(c))
+    ///           Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
     /// </summary>
-    /// <param name="args">[(0)x - current byte, a(1) - left byte, b(2) - up byte, c(3) - up left byte]</param>
-    /// <returns></returns>
+    /// <param name="args">
+    /// [(0)x - current byte, a(1) - left byte, b(2) - up byte, c(3) - up left byte]
+    /// </param>
     static public byte Encode(BFType type, params int[] args)
     {
         return type switch
@@ -216,14 +242,70 @@ class ByteFilter
         };
     }
 
-    static public bool DecodeScanline(
-        ArraySegment<byte> line, 
-        byte[] pixelData, 
-        int pdOff, // offset inside pixelData
+    static public bool DecodeFirstScanline(
+        ArraySegment<byte> line,
+        byte[] pixelData,
         out string msg)
     {
+        //Console.WriteLine(line.HexStr());
+        //Console.WriteLine("---");
+
+        byte[] lines = line.Array!;
+        int lnOff = line.Offset;
+        int len = line.Count;
+
         msg = "";
-        int filter = line[0];
+        int filter = lines[lnOff - 1];
+        if (!Enum.IsDefined(typeof(BFType), filter))
+        {
+            msg = $"ByteFilter.DecodeFirstScanline : filter '{filter}' not recognized";
+            return false;
+        }
+        BFType ftype = (BFType)filter;
+
+        switch (ftype)
+        {
+            case BFType.None:
+            case BFType.Up:
+                Array.Copy(lines, lnOff, pixelData, 0, len);
+                break;
+
+            case BFType.Sub:
+            case BFType.Paeth:
+                pixelData[0] = line[0];
+                for (int pos = 1; pos < len; pos++)
+                    pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1]);
+                break;
+
+            case BFType.Average:
+                pixelData[0] = line[0];
+                for (int pos = 1; pos < len; pos++)
+                    pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1] / 2);
+                break;
+
+            default:
+                msg = $"ByteFilter.DecodeFirstScanline : filter '{filter}' processor not found";
+                return false;
+        };
+
+        return true;
+    }
+
+static public bool DecodeScanline(
+        ArraySegment<byte> line, // only pixel data
+        byte[] pixelData, 
+        int pdOff, // starting offset inside pixelData
+        out string msg)
+    {
+        //Console.WriteLine(line.HexStr());
+        //Console.WriteLine("---");
+
+        byte[] lines = line.Array!;
+        int lnOff = line.Offset;
+        int len = line.Count;
+
+        msg = "";
+        int filter = lines[lnOff - 1];
         if (!Enum.IsDefined(typeof(BFType), filter))
         {
             msg = $"ByteFilter.DecodeScanline : filter '{filter}' not recognized";
@@ -231,80 +313,55 @@ class ByteFilter
         }
         BFType ftype = (BFType)filter;
 
-        byte[] lines = line.Array!;
-        int lnOff = line.Offset;
-        int len = line.Count;
-        int upOff;
         switch (ftype)
         {
             case BFType.None:
-                Array.Copy(lines, lnOff + 1, pixelData, pdOff, len - 1);
+                Array.Copy(lines, lnOff, pixelData, pdOff, len);
                 break;
 
             case BFType.Sub:
-                pixelData[pdOff] = line[1];
-                for(int pos = 2; pos < len; pos++)
+                pixelData[pdOff] = line[0];
+                for (int pos = 1; pos < len; pos++)
                 {
-                    int posm1 = pos - 1;
-                    pixelData[pdOff + posm1] = (byte)(line[pos] + line[posm1]);
+                    int off = pdOff + pos;
+                    pixelData[off] = (byte)(line[pos] + pixelData[off - 1]);
                 }
                 break;
 
             case BFType.Up:
-                if(lnOff == 0) // topmost scanline
+                for (int pos = 0; pos < len; pos++)
                 {
-                    Array.Copy(lines, lnOff + 1, pixelData, pdOff, len - 1);
-                    break;
-                }
-                upOff = lnOff - len;
-                for (int pos = 1; pos < len; pos++)
-                {
-                    pixelData[pdOff + pos - 1] = (byte)(line[pos] + lines[upOff + pos]);
+                    int off = pdOff + pos;
+                    pixelData[off] = (byte)(line[pos] + pixelData[off - len]);
                 }
                 break;
 
             case BFType.Average:
-                if (lnOff == 0) // topmost scanline
+                pixelData[pdOff] = (byte)((line[0] + pixelData[pdOff - len]) / 2);
+                for (int pos = 1; pos < len; pos++)
                 {
-                    pixelData[pdOff] = line[1];
-                    for (int pos = 2; pos < len; pos++)
-                    {
-                        int posm1 = pos - 1;
-                        pixelData[pdOff + posm1] = (byte)(line[pos] + line[posm1] / 2);
-                    }
-                    break;
-                }
-                upOff = lnOff - len;
-                pixelData[pdOff] = (byte)(line[1] + lines[upOff + 1] / 2);
-                for (int pos = 2; pos < len; pos++)
-                {
-                    int posm1 = pos - 1;
-                    pixelData[pdOff + posm1] = (byte)(line[pos] + (line[posm1] + lines[upOff + pos]) / 2);
+                    int off = pdOff + pos;
+                    pixelData[off] = (byte)(line[pos] + 
+                        (pixelData[off - 1] + pixelData[off - len]) / 2);
                 }
                 break;
 
             case BFType.Paeth:
-                if (lnOff == 0) // topmost scanline = Sub
+                pixelData[pdOff] = (byte)(line[0] + pixelData[pdOff - len]);
+                for (int pos = 1; pos < len; pos++)
                 {
-                    pixelData[pdOff] = line[1];
-                    for (int pos = 2; pos < len; pos++)
-                    {
-                        int posm1 = pos - 1;
-                        pixelData[pdOff + posm1] = (byte)(line[pos] + line[posm1]);
-                    }
-                    break;
-                }
-                upOff = lnOff - len;
-                pixelData[pdOff] = (byte)(line[1] + lines[upOff + 1]);
-                for (int pos = 2; pos < len; pos++)
-                {
-                    int posm1 = pos - 1;
-                    pixelData[pdOff + posm1] = (byte)(line[pos] + PaethPredictor(line[posm1], lines[upOff + pos], lines[upOff + posm1]));
+                    int off = pdOff + pos;
+                    int offUp = off - len;
+                    pixelData[off] = (byte)(line[pos] + PaethPredictor(
+                        pixelData[off - 1],
+                        pixelData[offUp],
+                        pixelData[offUp - 1]));
                 }
                 break;
 
             default:
-                break;
+                msg = $"ByteFilter.DecodeScanline : filter '{filter}' processor not found";
+                return false;
         };
 
         return true;
@@ -333,6 +390,21 @@ public static class IntExtensions
 
 class Utils
 {
+    static public void PrintBytes(byte[][] bytes, string fmt = " ") 
+    {
+        foreach (var byteArr in bytes)
+        {
+            string hex = BitConverter.ToString(byteArr);
+            Console.WriteLine(hex.Replace("-", fmt));
+        }
+    }
+    static public void PrintBytes(byte[] bytes, string fmt = " ")
+    {
+        string hex = BitConverter.ToString(bytes);
+        Console.WriteLine(hex.Replace("-", fmt));
+    }
+
+
     static public byte[] ReadFileBytes(string path, string name)
     {
         try

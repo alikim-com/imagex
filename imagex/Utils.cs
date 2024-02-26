@@ -201,6 +201,22 @@ public class Utils
         }
     }
 
+    static public void WriteFileBytes(string path, string name, byte[][] outp)
+    {
+        try
+        {
+            using var fileStream = new FileStream(Path.Combine(path, name), FileMode.Create);
+            using var writer = new BinaryWriter(fileStream);
+
+            foreach (var byteArr in outp)
+                writer.Write(byteArr);
+        }
+        catch (Exception ex)
+        {
+            Log($"Utils.WriteAllBytes : exception '{ex.Message}'");
+        }
+    }
+
     static public void WriteFileBytes(string path, string name, byte[] outp)
     {
         try
@@ -209,7 +225,7 @@ public class Utils
         }
         catch (Exception ex)
         {
-            Log($"Utils.WriteFile : exception '{ex.Message}'");
+            Log($"Utils.WriteAllBytes : exception '{ex.Message}'");
         }
     }
 
