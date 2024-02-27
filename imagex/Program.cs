@@ -67,15 +67,20 @@ internal class Program
 
     static void TestLoad()
     {
+        var path = "../../../testImages";
+
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
         if(fname == "") fname = "rgb_3x3.png";
 
-        var png = Png.FromFile("../../../testImages", fname);
+        var png = Png.FromFile(path, fname);
         Console.WriteLine(png);
-        Console.WriteLine("decoding '" + fname + "'...");
+        Console.WriteLine("decoding '" + fname + "'..");
         var xdat = Png.ToXdat(png);
-        Console.WriteLine(xdat);
+        xdat.ToFile(path, fname);
+
+        png.RemoveUnknownChunks();
+        png.ToFile(path, fname);
 
     }
 

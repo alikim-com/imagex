@@ -21,14 +21,14 @@ public class Xdat(
     public readonly int bitsPerPixel = _numChan * _bitDepth;
     public readonly byte[] pixelData = _pixelData;
 
-    public static void ToFile(Xdat xdat, string path, string fname)
+    public void ToFile(string path, string fname)
     {
         byte[][] xData =
         [
-            xdat.width.BytesRightToLeft(),
-            xdat.height.BytesRightToLeft(),
-            [(byte)xdat.numChan, (byte)xdat.bitDepth, 0, 0],
-            xdat.pixelData
+            width.BytesRightToLeft(),
+            height.BytesRightToLeft(),
+            [(byte)numChan, (byte)bitDepth, 0, 0],
+            pixelData
         ];
         Utils.WriteFileBytes(path, fname + ".xdat", xData);
     }

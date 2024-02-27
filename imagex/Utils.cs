@@ -49,9 +49,21 @@ public static class IntExtensions
         return BitConverter.GetBytes(memLayoutBE);
     }
 
+    public static byte[] BytesLeftToRight(this long val)
+    {
+        long memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
+        return BitConverter.GetBytes(memLayoutBE);
+    }
+
     public static byte[] BytesRightToLeft(this int val)
     {
         int memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
+        return BitConverter.GetBytes(memLayoutLE);
+    }
+
+    public static byte[] BytesRightToLeft(this long val)
+    {
+        long memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
         return BitConverter.GetBytes(memLayoutLE);
     }
 

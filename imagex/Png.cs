@@ -107,6 +107,37 @@ public class Png(
         return true;
     }
 
+    public void RemoveUnknownChunks()
+    {
+        for (int i = 0; i < chList.Count; i++)
+        {
+            var ch = chList[i];
+            if (ch.type == Chunk.ChType.UNKN)
+            {
+                chList.RemoveAt(i);
+                i--;
+            }
+        }
+    }
+
+    public void ToFile(string path, string fname)
+    {
+        var memStream = new MemoryStream();
+
+        memStream.Write(((long)SIG).BytesRightToLeft());
+
+        foreach (var ch in chList)
+        {
+            memStream.Write(ch.data.Count.BytesRightToLeft());
+            memStream.Write(new byte[] { (byte)ch.type });
+            memStream.Write(ch.data);
+            memStream.Write(ch.crc.BytesRightToLeft());
+        }
+
+        using FileStream fStream = new(Path.Combine(path, fname), FileMode.Create);
+        memStream.WriteTo(fStream);
+    }
+
     public static Png FromFile(string path, string fname)
     {
         var data = Utils.ReadFileBytes(path, fname);
@@ -179,7 +210,7 @@ public class Png(
 
         if (verbose)
         {
-            Console.WriteLine(
+            Utils.Log(
            $"""
             filter stats:
             None {filtersFound[0]},
@@ -211,7 +242,7 @@ public class Png(
     {
 
         // Utils.PrintBytes(buffer);
-        // Console.WriteLine("---");
+        // Utils.Log("---");
 
         int row = 0;
         int off = 1;
@@ -245,12 +276,19 @@ public class Png(
             new Exception(msg));
 
         // Utils.PrintBytes(pixelData);
-        // Console.WriteLine("---");
+        // Utils.Log("---");
     }
 
-    public class NoneChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) :
+    public class UNKNChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc,
+        string _actualType) :
         Chunk(_type, _status, _data, _crc)
-    { }
+    {
+        protected override string ParsedData() =>
+            $"""
+              actual type: {_actualType}
+
+            """;
+    }
 
     public class IHDRChunk(Chunk.ChType _type, int _status, ArraySegment<byte> _data, int _crc) : Chunk(_type, _status, _data, _crc)
     {
@@ -340,14 +378,14 @@ public class Png(
     {
         public enum ChType
         {
-            None = 0,
+            UNKN = 0,
             IHDR = 0x49484452,
             IDAT = 0x49444154,
             IEND = 0x49454E44,
         }
 
         static readonly Dictionary<ChType, Type> classMap = new() {
-        {ChType.None, typeof(NoneChunk)},
+        {ChType.UNKN, typeof(UNKNChunk)},
         {ChType.IHDR, typeof(IHDRChunk)},
         {ChType.IDAT, typeof(IDATChunk)},
         {ChType.IEND, typeof(IENDChunk)},
@@ -362,28 +400,30 @@ public class Png(
         }
 
         public readonly ChType type;
-        readonly ArraySegment<byte> data;
-        readonly int crc;
+        public readonly ArraySegment<byte> data;
+        public readonly int crc;
         readonly int status;
 
         static public Chunk Create(int _type, ArraySegment<byte> _data, int _crc)
         {
             ChType type;
             int status = (int)Status.None;
+            object[] param;
 
             if (!Enum.IsDefined(typeof(ChType), _type))
             {
-                type = ChType.None;
-                Utils.Log($"Chunk.Create : chunk type '{_type:X}({_type.ToText()})' not supported");
+                type = ChType.UNKN;
                 status |= (int)Status.TypeNotSupported;
+                param = [type, status, _data, _crc, $"{_type:X} ({_type.ToText()})"];
             } else
             {
                 type = (ChType)_type;
+                param = [type, status, _data, _crc];
             }
 
             Type clsType = classMap[type];
 
-            var obj = Activator.CreateInstance(clsType, new object[] { type, status, _data, _crc });
+            var obj = Activator.CreateInstance(clsType, param);
 
             return obj == null ? throw new Exception
                 ($"Chunk.Create : couldn't create instance of type '{clsType}'") : (Chunk)obj;
@@ -508,8 +548,8 @@ public class Png(
         byte[] pixelData,
         out string msg)
         {
-            //Console.WriteLine(line.HexStr());
-            //Console.WriteLine("---");
+            //Utils.Log(line.HexStr());
+            //Utils.Log("---");
 
             byte[] lines = line.Array!;
             int lnOff = line.Offset;
@@ -559,8 +599,8 @@ public class Png(
                 int pdOff, // starting offset inside pixelData
                 out string msg)
         {
-            //Console.WriteLine(line.HexStr());
-            //Console.WriteLine("---");
+            //Utils.Log(line.HexStr());
+            //Utils.Log("---");
 
             byte[] lines = line.Array!;
             int lnOff = line.Offset;
