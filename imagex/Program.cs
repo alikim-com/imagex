@@ -71,8 +71,12 @@ internal class Program
         string fname = Console.ReadLine() ?? "";
         if(fname == "") fname = "rgb_3x3.png";
 
+        var png = Png.FromFile("../../../testImages", fname);
+        Console.WriteLine(png);
         Console.WriteLine("decoding '" + fname + "'...");
-        var png = PNG.FromFile("../../../testImages", fname);
+        var xdat = Png.ToXdat(png);
+        Console.WriteLine(xdat);
+
     }
 
     static void TestSpeed()
