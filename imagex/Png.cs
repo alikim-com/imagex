@@ -124,14 +124,15 @@ public class Png(
     {
         var memStream = new MemoryStream();
 
-        memStream.Write(((long)SIG).BytesRightToLeft());
+        memStream.Write(((long)SIG).BytesLeftToRight());
 
         foreach (var ch in chList)
         {
-            memStream.Write(ch.data.Count.BytesRightToLeft());
-            memStream.Write(new byte[] { (byte)ch.type });
+
+            memStream.Write(ch.data.Count.BytesLeftToRight());
+            memStream.Write(((int)ch.type).BytesLeftToRight());
             memStream.Write(ch.data);
-            memStream.Write(ch.crc.BytesRightToLeft());
+            memStream.Write(ch.crc.BytesLeftToRight());
         }
 
         using FileStream fStream = new(Path.Combine(path, fname), FileMode.Create);

@@ -79,8 +79,8 @@ internal class Program
         var xdat = Png.ToXdat(png);
         xdat.ToFile(path, fname);
 
-        png.RemoveUnknownChunks();
-        png.ToFile(path, fname);
+       // png.RemoveUnknownChunks();
+       // png.ToFile(path, fname);
 
     }
 
