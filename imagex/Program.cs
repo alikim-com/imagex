@@ -71,7 +71,7 @@ internal class Program
 
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
-        if(fname == "") fname = "rgb_3x3.png";
+        if(fname == "") fname = "rgba_3x3.png";
 
         var png = Png.FromFile(path, fname);
         Console.WriteLine(png);

@@ -83,6 +83,12 @@ public static class IntExtensions
 
 public class Utils
 {
+    static public void PrintBytes(byte[] bytes, string fmt = " ")
+    {
+        string hex = BitConverter.ToString(bytes);
+        Console.WriteLine(hex.Replace("-", fmt));
+    }
+
     static public string IntBitsToEnums(int val, Type enmType)
     {
         List<string> outp = [];

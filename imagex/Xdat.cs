@@ -25,8 +25,8 @@ public class Xdat(
     {
         byte[][] xData =
         [
-            width.BytesRightToLeft(),
-            height.BytesRightToLeft(),
+            width.BytesLeftToRight(),
+            height.BytesLeftToRight(),
             [(byte)numChan, (byte)bitDepth, 0, 0],
             pixelData
         ];

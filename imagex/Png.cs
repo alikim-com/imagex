@@ -242,8 +242,8 @@ public class Png(
         int height)
     {
 
-        // Utils.PrintBytes(buffer);
-        // Utils.Log("---");
+        Utils.PrintBytes(buffer);
+        Utils.Log("---");
 
         int row = 0;
         int off = 1;
