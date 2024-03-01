@@ -197,7 +197,10 @@ public class Png(
         var bitsPerPixel = numChan * hdrCh.bitDepth;
         var scanlineBitLen = bitsPerPixel * hdrCh.width;
         var wholeBytes = scanlineBitLen / 8;
-        int scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1;
+        var scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1;
+
+        // to find a & c in scanline filters
+        var lookupOff = hdrCh.bitDepth < 8 ? 1 : bitsPerPixel / 8;
 
         byte[] pixelData = new byte[scanlineBytelen * hdrCh.height];
 
@@ -207,6 +210,7 @@ public class Png(
             decompDataStream.GetBuffer(),
             pixelData,
             scanlineBytelen + 1,
+            lookupOff,
             hdrCh.height);
 
         if (verbose)
@@ -239,6 +243,7 @@ public class Png(
         byte[] buffer,
         byte[] pixelData,
         int lineLen, // includes 1 byte of filter type
+        int lookupOff,
         int height)
     {
 
@@ -253,6 +258,7 @@ public class Png(
         bool decoded = ByteFilter.DecodeFirstScanline(
             new ArraySegment<byte>(buffer, off, lineLenm1),
             pixelData,
+            lookupOff,
             out string msg);
 
         if (!decoded) throw new InvalidDataException(
@@ -269,6 +275,7 @@ public class Png(
                 new ArraySegment<byte>(buffer, off, lineLenm1),
                 pixelData,
                 pdOff, // offset inside pixelData
+                lookupOff,
                 out msg);
         }
 
@@ -547,6 +554,7 @@ public class Png(
         static public bool DecodeFirstScanline(
         ArraySegment<byte> line,
         byte[] pixelData,
+        int lookupOff,
         out string msg)
         {
             //Utils.Log(line.HexStr());
@@ -575,15 +583,15 @@ public class Png(
 
                 case BFType.Sub:
                 case BFType.Paeth:
-                    pixelData[0] = line[0];
-                    for (int pos = 1; pos < len; pos++)
-                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1]);
+                    Array.Copy(lines, lnOff, pixelData, 0, lookupOff);
+                    for (int pos = lookupOff; pos < len; pos++)
+                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - lookupOff]);
                     break;
 
                 case BFType.Average:
-                    pixelData[0] = line[0];
-                    for (int pos = 1; pos < len; pos++)
-                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - 1] / 2);
+                    Array.Copy(lines, lnOff, pixelData, 0, lookupOff);
+                    for (int pos = lookupOff; pos < len; pos++)
+                        pixelData[pos] = (byte)(line[pos] + pixelData[pos - lookupOff] / 2);
                     break;
 
                 default:
@@ -598,6 +606,7 @@ public class Png(
                 ArraySegment<byte> line, // only pixel data
                 byte[] pixelData,
                 int pdOff, // starting offset inside pixelData
+                int lookupOff,
                 out string msg)
         {
             //Utils.Log(line.HexStr());
@@ -624,11 +633,11 @@ public class Png(
                     break;
 
                 case BFType.Sub:
-                    pixelData[pdOff] = line[0];
-                    for (int pos = 1; pos < len; pos++)
+                    Array.Copy(lines, lnOff, pixelData, pdOff, lookupOff);
+                    for (int pos = lookupOff; pos < len; pos++)
                     {
                         int off = pdOff + pos;
-                        pixelData[off] = (byte)(line[pos] + pixelData[off - 1]);
+                        pixelData[off] = (byte)(line[pos] + pixelData[off - lookupOff]);
                     }
                     break;
 
@@ -641,25 +650,34 @@ public class Png(
                     break;
 
                 case BFType.Average:
-                    pixelData[pdOff] = (byte)((line[0] + pixelData[pdOff - len]) / 2);
-                    for (int pos = 1; pos < len; pos++)
+                    for (int pos = 0; pos < lookupOff; pos++)
+                    {
+                        int off = pdOff + pos;
+                        pixelData[off] = (byte)(line[pos] + pixelData[off - len] / 2);
+                    }
+                    for (int pos = lookupOff; pos < len; pos++)
                     {
                         int off = pdOff + pos;
                         pixelData[off] = (byte)(line[pos] +
-                            (pixelData[off - 1] + pixelData[off - len]) / 2);
+                            (pixelData[off - lookupOff] + pixelData[off - len]) / 2);
                     }
                     break;
 
                 case BFType.Paeth:
-                    pixelData[pdOff] = (byte)(line[0] + pixelData[pdOff - len]);
-                    for (int pos = 1; pos < len; pos++)
+                    for (int pos = 0; pos < lookupOff; pos++)
+                    {
+                        int off = pdOff + pos;
+                        int offUp = off - len;
+                        pixelData[off] = (byte)(line[pos] + pixelData[offUp]);
+                    }
+                    for (int pos = lookupOff; pos < len; pos++)
                     {
                         int off = pdOff + pos;
                         int offUp = off - len;
                         pixelData[off] = (byte)(line[pos] + PaethPredictor(
-                            pixelData[off - 1],
+                            pixelData[off - lookupOff],
                             pixelData[offUp],
-                            pixelData[offUp - 1]));
+                            pixelData[offUp - lookupOff]));
                     }
                     break;
 

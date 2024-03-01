@@ -1,6 +1,8 @@
+//const proto = 'http';
 //const http = require('http');
 //const port = 8080;
 
+const proto = 'https';
 const http = require('https');
 const port = 443;
 
@@ -16,7 +18,8 @@ const server = http.createServer(
    },
    (req, res) => {
    // Parse the URL to determine the requested file path
-   const filePath = '.' + req.url; console.log(filePath);
+   const filePath = '.' + req.url;
+   console.log(filePath);
    const extname = path.extname(filePath);
    const contentType = getContentType(extname);
 
@@ -67,5 +70,5 @@ function getContentType(extname) {
 }
 
 server.listen(port, hostname, () => {
-   console.log(`Server running at http://${hostname}:${port}/`);
+   console.log(`Server running at ${proto}://${hostname}:${port}/`);
 });

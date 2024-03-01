@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="scrollbar-width: none;">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+        * {
+  margin: 0px;
+  padding: 0px;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+button {
+  border: 1px solid #1f5169;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  padding: 3px 8px 6px 8px;
+}
+
+button:hover {
+  cursor: pointer;
+  color: #fff;
+  background-color: #0099aa;
+}
+
+button.mini {
+  padding: 0px 8px 2px 8px;
+}
+
+button.mini-x {
+  font-size: 12px;
+  padding: 2px 4px 1px 4px;
+}
+
+button.mini-xc {
+  font-size: 12px;
+  padding: 2px 4px 2px 4px;
+  border: none;
+  border-radius: 3px;
+}
+
+textarea {
+  border: 1px solid #1f5169;
+  background-color: #0d1926;
+  color: #91d6db;
+  box-sizing: border-box;
+  padding: 5px;
+  resize: both;
+  -moz-tab-size: 2;
+  tab-size: 2;
+  user-select: auto;
+}
+
+select,
+input:not([type="checkbox"]) {
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #1f5169;
+  background-color: #183048;
+  color: #00ddee;
+  padding-top: 5px;
+}
+
+select {
+  background-image: url('./arr.png');
+  background-repeat: no-repeat;
+  background-position-x: 100%;
+  background-position-y: center;
+  cursor: pointer;
+  padding: 1px 20px 1px 3px;
+}
+
+input[type="text"] {
+  padding: 1px 0px 2px 4px;
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+}
+
+input[type="checkbox"]:after {
+  position: relative;
+  display: block;
+  width: 7px;
+  height: 7px;
+  background-repeat: no-repeat;
+  background-position: center;
+  content: "";
+  border: 1px solid #296c87;
+  margin-right: 5px;
+  cursor: pointer;
+}
+
+input[type="checkbox"]:checked:after {
+  background-color: #00ddee;
+}
+
+input[type="checkbox"]+span {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+::placeholder {
+  color: #00ddee;
+  opacity: 0.4;
+}
+
+::-ms-input-placeholder {
+  color: #00ddee;
+  opacity: 0.4;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  outline: none;
+}
+
+@font-face {
+  font-family: 'Ubuntu Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./ubuntuMono.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+.mono {
+  font-family: "Ubuntu Mono", Consolas, "Lucida Console", "Courier New", "SF Mono", Monaco, monospace;
+}
+
+.s12 {
+  font-size: 12px;
+}
+
+.s14 {
+  font-size: 14px;
+}
+
+.clean_scroll {
+  overflow: scroll;
+}
+
+.noscroll {
+  overflow: hidden;
+}
+
+.clean_scroll,
+.noscroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.clean_scroll::-webkit-scrollbar,
+.noscroll::-webkit-scrollbar {
+  display: none;
+}
+
+.noselect {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.hcenter {
+  display: flex;
+  justify-content: center;
+}
+
+.vcenter {
+  display: flex;
+  align-items: center;
+}
+
+.fwrap {
+  flex-wrap: wrap;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vcjust {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vtop {
+  vertical-align: top;
+}
+
+.controls {
+  display: flex;
+  align-items: flex-start;
+}
+
+.none {
+  display: none;
+}
+
+.block {
+  display: block;
+}
+
+.shrink {
+  display: inline-block;
+}
+
+.hide {
+  visibility: hidden;
+}
+
+.opa50 {
+  opacity: 0.5;
+}
+
+.nomouse {
+  pointer-events: none;
+}
+
+.nocursor {
+   cursor: none;
+   pointer-events: none;
+}
+
+.mt5 {
+  margin-top: 5px;
+}
+
+.mt10 {
+  margin-top: 10px;
+}
+
+.mt15 {
+  margin-top: 15px;
+}
+
+.mt20 {
+  margin-top: 20px;
+}
+
+.ml5 {
+  margin-left: 5px;
+}
+
+.ml10 {
+  margin-left: 10px;
+}
+
+.ml15 {
+  margin-left: 15px;
+}
+
+.ml20 {
+  margin-left: 20px;
+}
+
+.ml40 {
+  margin-left: 40px;
+}
+
+.w1em {
+  width: 1em;
+}
+
+.w20 {
+  width: 20px;
+   min-width: 20px;
+}
+
+.w30 {
+  width: 30px;
+   min-width: 30px;
+}
+
+.w40 {
+  width: 40px;
+   min-width: 40px;
+}
+
+.w50 {
+  width: 50px;
+   min-width: 50px;
+}
+
+.w60 {
+  width: 60px;
+   min-width: 60px;
+}
+
+.w70 {
+  width: 70px;
+   min-width: 70px;
+}
+
+.w80 {
+  width: 80px;
+   min-width: 80px;
+}
+
+.w100 {
+  width: 100px;
+   min-width: 100px;
+}
+
+.w110 {
+  width: 110px;
+   min-width: 110px;
+}
+
+.w120 {
+  width: 120px;
+   min-width: 120px;
+}
+
+.w150 {
+  width: 150px;
+   min-width: 150px;
+}
+
+textarea.cscroll {
+  border-radius: 5px;
+}
+
+.cscroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cscroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.cscroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.cscroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.green {
+  color: #22aa22;
+}
+
+.red {
+  color: #ff3333;
+}
+
+.elog {
+  color: #ff3333;
+  border: none;
+  border-left: solid 2px #ff3333;
+  background: none;
+  resize: none;
+}
+
+.elog_ok {
+  color: #22aa22;
+  border: none;
+  border-left: solid 2px #22aa22;
+  background: none;
+  resize: none;
+}
+
+@keyframes flash_green {
+  from {
+    border-color: #22aa22;
+  }
+  to {
+    border-color: #1f5169;
+  }
+}
+
+.flash_green {
+  animation-name: flash_green;
+  animation-duration: 2s;
+}
+
+@keyframes flash_red {
+  from {
+    border-color: #ff3333;
+  }
+  to {
+    border-color: #1f5169;
+  }
+}
+
+.flash_red {
+  animation-name: flash_red;
+  animation-duration: 2s;
+}
+
+#hint {
+  position: fixed;
+  top: 0px;
+  left: 0px;
+  max-width: 200px;
+  margin: 20px 10px 10px 20px;
+  padding: 10px;
+  border-radius: 5px;
+  border: solid 1px rgba(255, 255, 255, 0.25);
+  background: rgba(34, 51, 68, 0.66);
+  color: #cccccc;
+  white-space: pre-wrap;
+  /* offset-x | offset-y | blur-radius | spread-radius | color */
+  box-shadow: 0px 0px 4px 2px rgba(0, 0, 0, 0.2);
+}
+
+.slider {
+  width: calc(100% - 20px);
+  height: 25px;
+  background: rgb(0, 0, 0, 0.55);
+  box-sizing: content-box;
+  position: relative;
+  cursor: pointer;
+}
+
+.slider2 {
+  width: 100%;
+  height: 25px;
+  background: rgb(0, 0, 0, 0.25);
+  box-sizing: content-box;
+  position: relative;
+  cursor: pointer;
+}
+
+.track {
+  left: 14px;
+  top: calc(50% - 1px);
+  width: calc(100% - 28px);
+  height: 1px;
+  background-color: #296c87;
+  position: absolute;
+}
+
+.knob {
+  width: 19px;
+  height: 19px;
+  margin: 0px 5px 0px 5px;
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  background-image: radial-gradient(circle at center, #00ddee 0%, #00ddee 30%, transparent 40%);
+}
+
+.border_ext {
+  border-left: solid 1px rgba(255, 255, 255, 0.2);
+  border-top: solid 1px rgba(255, 255, 255, 0.2);
+  border-right: solid 1px rgba(0, 0, 0, 0.33);
+  border-bottom: solid 1px rgba(0, 0, 0, 0.33);
+}
+
+.border_int {
+  border-right: solid 1px rgba(255, 255, 255, 0.2);
+  border-bottom: solid 1px rgba(255, 255, 255, 0.2);
+  border-top: solid 1px rgba(0, 0, 0, 0.33);
+  border-left: solid 1px rgba(0, 0, 0, 0.33);
+}
+
+input.clear {
+   color: #ccc;
+   border: none;
+   background: none;
+   padding-left: 0px;
+}
+body {
+   margin: 10px;
+   background-color: #112233;
+   color: #999;
+}
+
+body {
+   font-family: "Ubuntu Mono", Consolas, "Lucida Console", "Courier New", "SF Mono", Monaco, monospace;
+   font-size: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+   body.adaptive {
+      background-color: #ccddee;
+      color: #333;
+   }
+   input.adaptive, textarea.adaptive {
+      background-color: #c1d3e5;
+      color: #064b50;
+   }
+ }
+
+#mainCanvas {
+   border: solid 1px #800000;
+}
+
+textarea {
+   margin-top: 10px;
+   background: #112233;
+   border: solid 1px #800000;
+   padding: 5px;
+   color: #999;
+}
+
+#info {
+   width: 500px;
+   height: 120px;
+}
+
+        .clean_scroll {
+            overflow: scroll;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .clean_scroll::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+<title></title>
+</head>
+<body class="clean_scroll">
+<script type="module">
+    import { makeRequest } from 'https://alikim.com/_v1_jsm/network.js'
+
+const getHTML = () => {
+   const html = {};
+   document.querySelectorAll('*[id]').forEach(e => html[e.id] = e);
+   return html;
+};
+
+const html = getHTML();
+
+const canv = html.mainCanvas;
+const ctx = canv.getContext('2d');
+
+const zoom = 10; // image magnification
+const gap = 1; // between magnified pixels
+const space = 20; // between images
+let iw, ih, iData, iData2, iDataDf;
+
+const drawPixel = (row, col, offX, offY, zoom, iData) => {
+   const ind = 4 * (row * iw + col);
+   const [r, g, b, a] = iData.slice(ind, ind + 4);
+   ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+   ctx.fillRect(
+      offX + col * (zoom + gap),
+      offY + row * (zoom + gap),
+      zoom,
+      zoom);
+};
+
+const getPixelInfo = (row, col, iData) => {
+   const ind = 4 * (row * iw + col);
+   const [r, g, b, a] =
+      Array.from(iData.slice(ind, ind + 4)).map(ch => ch.toString(16).padStart(2, '0'));
+   return `${r} ${g} ${b} ${a}`;
+};
+
+const drawZoomedImg = (offX, offY, iData) => {
+   const len = iData.length / 4;
+   for (let i = 0; i < len; i++) {
+      const col = i % iw;
+      const row = Math.floor(i / iw);
+      drawPixel(row, col, offX, offY, zoom, iData);
+   }
+};
+
+const readInt32BigEndian = (byteArr, off) => 
+   (byteArr[off] << 24) |
+   (byteArr[off + 1] << 16) |
+   (byteArr[off + 2] << 8) |
+    byteArr[off + 3];
+
+const serialiseToRGBA = fData => {
+   const iw = readInt32BigEndian(fData, 0);
+   const ih = readInt32BigEndian(fData, 4);
+   const numChan = fData[8];
+   const bitDepth = fData[9];
+   const bitsPerPixel = numChan * bitDepth;
+
+   const serData = new Uint8ClampedArray(iw * ih * 4);
+
+   const pixData = fData.subarray(12); 
+   
+   if (bitDepth == 8) { console.log(numChan);
+      if (numChan == 4) {
+         serData.set(pixData);
+      }
+      else if (numChan == 3) {
+         let cnt = 0;
+         for (let i = 0; i < pixData.length; i += 3) {
+            serData[cnt] = pixData[i];
+            serData[cnt + 1] = pixData[i + 1];
+            serData[cnt + 2] = pixData[i + 2];
+            serData[cnt + 3] = 255;
+            cnt += 4;
+         }
+      }
+   }
+
+   return serData;
+
+   //var scanlineBitLen = bitsPerPixel * hdrCh.width;
+   //var wholeBytes = scanlineBitLen / 8;
+   //int scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1;
+};
+
+const onload = (imgSrc, fData) => {
+
+   ctx.clearRect(0, 0, canv.width, canv.height);
+
+   iw = imgSrc.width;
+   ih = imgSrc.height;
+   ctx.drawImage(imgSrc, 0, 0);
+   const canvData = ctx.getImageData(0, 0, iw, ih);
+   iData = canvData.data;
+
+   console.log(`width: ${iw}, height: ${ih}`);
+
+   let iOffX = iw + space;
+   let iOffY = 0;
+   drawZoomedImg(iOffX, iOffY, iData);
+
+   iData2 = serialiseToRGBA(fData);
+
+   const iwZoomed = iw * (zoom + gap);
+   const ihZoomed = ih * (zoom + gap);
+   iOffX += iwZoomed + space;
+   drawZoomedImg(iOffX, iOffY, iData2);
+
+   const iDataPix = new Int32Array(iData.buffer);
+   const iDataPix2 = new Int32Array(iData2.buffer);
+
+   iDataDf = new Uint8ClampedArray(iData.length);
+
+   for (let i = 0; i < iDataPix.length; i++) {
+      const r = 4 * i;
+      const a = r + 3;
+      iDataDf[r] = iDataPix[i] == iDataPix2[i] ? 48 : 255;
+      iDataDf[a] = 255;
+   }
+
+   iOffX += iwZoomed + space;
+   drawZoomedImg(iOffX, iOffY, iDataDf);
+
+   const info = document.getElementById('info');
+
+   canv.addEventListener('click', evt => {
+      const [x, y] = [evt.clientX, evt.clientY];
+      const cRect = canv.getBoundingClientRect();
+      const dfLeft = cRect.left + iOffX;
+      const dfTop = cRect.top + iOffY;
+      const dfRight = dfLeft + iwZoomed;
+      const dfBottom = dfTop + ihZoomed;
+
+      if (x < dfLeft || x > dfRight || y < dfTop || y > dfBottom) return;
+
+      const [cX, cY] = [
+         evt.clientX - cRect.x,
+         evt.clientY - cRect.y];
+      const col = Math.floor((cX - iOffX) / (zoom + gap));
+      const row = Math.floor((cY - iOffY) / (zoom + gap));
+      const iDataPixInf = getPixelInfo(row, col, iData);
+      const iDataPixInf2 = getPixelInfo(row, col, iData2);
+      info.value =
+         `row: ${row}, col: ${col}\n\n${iDataPixInf}\n${iDataPixInf2}`;
+   });
+};
+
+const fpath = 'https://localhost:443/testImages/rgb_3x3.png';
+const dpath = fpath + '.xdat';
+
+const promImgSrc = new Promise(res => {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => { res(img) };
+  img.src = fpath;
+  console.log(`Loading image '${fpath}'...`);
+});
+
+const promFdat = makeRequest(dpath, '', 'GET', 0, null, '', 'arraybuffer');
+console.log(`Loading image '${dpath}'...`);
+
+Promise.all([promImgSrc, promFdat])
+  .then(results => {
+    const imgSrc = results[0];
+
+    const _fdat = results[1].data;
+    const fdat = new Uint8ClampedArray(_fdat);
+
+    onload(imgSrc, fdat);
+    console.log('done');
+  })
+  .catch(error => {
+    console.error(error);
+  });
+
+const Uint8ArrToStr = (fdat, base = 16, sep = ' ') => {
+  const arr = new Array(3); 
+  fdat.forEach((e, i) => { 
+    arr[i] = e.toString(base).padStart(2, '0') 
+  });
+  
+  return arr.join(sep);
+};
+
+    </script>
+<canvas id="mainCanvas" width="500" height="250" class="block mt10">
+</canvas>
+<textarea id="info" class="adaptive mono s14" type="textarea" value="...">
+</textarea>
+<img src="https://localhost:443/testImages/rgba_3x3.png">
+</body>
+</html>
