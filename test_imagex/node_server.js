@@ -1,13 +1,22 @@
-const http = require('http');
+//const http = require('http');
+//const port = 8080;
+
+const http = require('https');
+const port = 443;
+
 const fs = require('fs');
 const path = require('path');
 
 const hostname = 'localhost';
-const port = 8080;
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(
+   {
+      key: fs.readFileSync('server.key'),
+      cert: fs.readFileSync('server.crt')
+   },
+   (req, res) => {
    // Parse the URL to determine the requested file path
-   const filePath = '.' + req.url;
+   const filePath = '.' + req.url; console.log(filePath);
    const extname = path.extname(filePath);
    const contentType = getContentType(extname);
 

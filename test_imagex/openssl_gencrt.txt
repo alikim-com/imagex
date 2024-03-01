@@ -1,0 +1,15 @@
+env PATH=C:\Program Files\OpenSSL\bin
+> set OPENSSL_CONF=C:\Program Files\OpenSSL\ssl\openssl.cnf
+> echo %OPENSSL_CONF%
+
+edit openssl.cnf
+
+[ v3_ca ]
+...
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS = localhost
+
+> openssl genrsa -out server.key 4096
+> openssl req -new -x509 -key server.key -out server.crt -sha256
