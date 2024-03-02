@@ -71,16 +71,21 @@ internal class Program
 
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
-        if(fname == "") fname = "rgba_3x3.png";
+        if(fname == "") fname = "rgb_3x3.png";
 
         var png = Png.FromFile(path, fname);
         Console.WriteLine(png);
+        
         Console.WriteLine("decoding '" + fname + "'..");
         var xdat = Png.ToXdat(png);
         xdat.ToFile(path, fname);
 
-       // png.RemoveUnknownChunks();
-       // png.ToFile(path, fname);
+        Console.WriteLine("translating to rgba..");
+        var rgbaDat = xdat.ToRgba();
+        rgbaDat.ToFile(path, fname);
+
+        // png.RemoveUnknownChunks();
+        // png.ToFile(path, fname);
 
     }
 

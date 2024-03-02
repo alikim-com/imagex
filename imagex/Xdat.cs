@@ -33,6 +33,65 @@ public class Xdat(
         Utils.WriteFileBytes(path, fname + ".xdat", xData);
     }
 
+    public Rgba ToRgba()
+    {
+        var len = pixelData.Length;
+        var rgbaData = new byte[4 * width * height];
+        int rgbaOff;
+
+        if (bitDepth == 8)
+        {
+            switch (numChan)
+            {
+                case 4:
+                    Array.Copy(pixelData, 0, rgbaData, 0, len);
+                    break;
+                case 3:
+                    Array.Fill<byte>(rgbaData, 0xFF);
+                    rgbaOff = 0;
+                    for (int i = 0; i < len; i += 3)
+                    {
+                        Array.Copy(pixelData, i, rgbaData, rgbaOff, 3);
+                        rgbaOff += 4;
+                    }
+                    break;
+                case 2:
+                    rgbaOff = 0;
+                    for (int i = 0; i < len; i += 2)
+                    {
+                        rgbaData[rgbaOff] =
+                        rgbaData[rgbaOff + 1] =
+                        rgbaData[rgbaOff + 2] = pixelData[i];
+                        rgbaData[rgbaOff + 3] = pixelData[i + 1];
+                        rgbaOff += 4;
+                    }
+                    break;
+                case 1:
+                    Array.Fill<byte>(rgbaData, 0xFF);
+                    rgbaOff = 0;
+                    for (int i = 0; i < len; i++)
+                    {
+                        rgbaData[rgbaOff] =
+                        rgbaData[rgbaOff + 1] =
+                        rgbaData[rgbaOff + 2] = pixelData[i];
+                        rgbaOff += 4;
+                    }
+                    break;
+            }
+        } 
+        else if (bitDepth < 8)
+        {
+
+        } 
+        else
+        {
+            throw new NotImplementedException
+                ($"Rgba doesn't support bitdepth '{bitDepth}'");
+        }
+
+        return new Rgba(width, height, rgbaData);
+    }
+
     public override string ToString()
     {
         return
