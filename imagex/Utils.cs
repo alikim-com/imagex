@@ -76,7 +76,7 @@ public static class IntExtensions
 
     public static string ToText(this int val)
     {
-        char[] arr = val.BytesRightToLeft().Select(b => (char)b).ToArray();
+        char[] arr = val.BytesLeftToRight().Select(b => (char)b).ToArray();
         return string.Concat(arr);
     }
 }
