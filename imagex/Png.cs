@@ -578,18 +578,18 @@ public class Png(
             {
                 case BFType.None:
                 case BFType.Up:
-                    Array.Copy(lines, lnOff, pixelData, 0, len);
+                    Buffer.BlockCopy(lines, lnOff, pixelData, 0, len);
                     break;
 
                 case BFType.Sub:
                 case BFType.Paeth:
-                    Array.Copy(lines, lnOff, pixelData, 0, lookupOff);
+                    Buffer.BlockCopy(lines, lnOff, pixelData, 0, lookupOff);
                     for (int pos = lookupOff; pos < len; pos++)
                         pixelData[pos] = (byte)(line[pos] + pixelData[pos - lookupOff]);
                     break;
 
                 case BFType.Average:
-                    Array.Copy(lines, lnOff, pixelData, 0, lookupOff);
+                    Buffer.BlockCopy(lines, lnOff, pixelData, 0, lookupOff);
                     for (int pos = lookupOff; pos < len; pos++)
                         pixelData[pos] = (byte)(line[pos] + pixelData[pos - lookupOff] / 2);
                     break;
@@ -629,11 +629,11 @@ public class Png(
             switch (ftype)
             {
                 case BFType.None:
-                    Array.Copy(lines, lnOff, pixelData, pdOff, len);
+                    Buffer.BlockCopy(lines, lnOff, pixelData, pdOff, len);
                     break;
 
                 case BFType.Sub:
-                    Array.Copy(lines, lnOff, pixelData, pdOff, lookupOff);
+                    Buffer.BlockCopy(lines, lnOff, pixelData, pdOff, lookupOff);
                     for (int pos = lookupOff; pos < len; pos++)
                     {
                         int off = pdOff + pos;
