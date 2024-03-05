@@ -1,11 +1,13 @@
 const {
-   app, BrowserWindow, nativeTheme, Menu, dialog,
+   app, screen, BrowserWindow, nativeTheme, Menu, dialog,
    ipcMain
 } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const [winWidth, winHeight] = [1200, 800];
+const log = console.log;
+
+let winWidth = 0, winHeight = 0;
 
 const pathToUri = path => {
    // no encodeURI() - it replaces slashes
@@ -50,7 +52,7 @@ const createWindow = () => {
                   obj.href = furl.href;
 
                   // byte array
-                  const dPath = fPath + '.xdat';
+                  const dPath = fPath + '.rgba';
                   console.log(`Reading data file '${dPath}'...`);
                   fs.readFile(dPath, (err, buff) => {
                      if (err) {
@@ -119,6 +121,11 @@ app.on('window-all-closed', () => {
 nativeTheme.themeSource = 'dark';
 
 app.whenReady().then(() => {
+
+   const primaryDisplay = screen.getPrimaryDisplay();
+   const size = primaryDisplay.workAreaSize;
+   winWidth = size.width - 200;
+   winHeight = size.height - 200;
 
    createWindow();
 

@@ -18,7 +18,15 @@
    Chromium <span id="chrome-version"></span>,
    and Electron <span id="electron-version"></span>.
    </div>
-
+   <div id="fileName" class="mt10 shrink">Use menu or Ctrl+O to open a file</div>
+   <div class="mt10 vcenter">
+      <div id="zoomLabel" class="shrink">Zoom level (x3):</div>
+      <input type="range" id="zoom" class="ml10 shrink" min="1" max="10" value="3">
+   </div>
+   <label class="mt10 vcenter">
+      <span>Use pixel gap:</span>
+      <input type="checkbox" id="gap" class="ml10" checked/>
+   </label>
    <canvas id="mainCanvas" width="500" height="250" class="block mt10"></canvas>
    <textarea id="info" class="adaptive mono s14" type="textarea" value="..."></textarea>
 

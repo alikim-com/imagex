@@ -50,7 +50,7 @@ textarea {
 }
 
 select,
-input:not([type="checkbox"]) {
+input:not([type="checkbox"]):not([type="range"]) {
 	appearance: none;
 	-moz-appearance: none;
 	-webkit-appearance: none;
@@ -115,6 +115,30 @@ textarea:focus,
 input:focus,
 select:focus {
 	outline: none;
+}
+
+input[type=range] {
+   appearance: none;
+	-moz-appearance: none;
+	-webkit-appearance: none;
+   background: none;
+   height: 11px;
+}
+ 
+input[type=range]::-webkit-slider-thumb {
+   -webkit-appearance: none;
+   cursor: pointer;
+   background-color: #00ddee;
+   width: 10px;
+   height: 11px;
+   margin-top: -4px;
+}
+
+input[type=range]::-webkit-slider-runnable-track  {
+   cursor: pointer;
+   background: #296c87;
+   border: none;
+   height: 3px;
 }
 
 @font-face {

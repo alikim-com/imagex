@@ -33,6 +33,30 @@ textarea {
 }
 
 #info {
+   display: block;
    width: 500px;
    height: 120px;
+}
+
+#gap:after {
+   width: 10px;
+   height: 10px;
+}
+
+::-webkit-scrollbar-track {
+   background: rgba(26,26,42,.8)
+}
+
+::-webkit-scrollbar {
+   width: 10px;
+   height: 10px
+}
+
+::-webkit-scrollbar-thumb {
+   border-radius: 3px;
+   background: #1b586d
+}
+
+::-webkit-scrollbar-thumb:hover {
+   background: #1b586d
 }

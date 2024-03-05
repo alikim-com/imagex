@@ -1,3 +1,7 @@
+const log = console.log;
+
+const updateMsg = msg => { html.fileName.innerText = msg };
+
 const getHTML = () => {
    const html = {};
    document.querySelectorAll('*[id]').forEach(e => html[e.id] = e);
@@ -7,14 +11,21 @@ const getHTML = () => {
 const html = getHTML();
 
 const canv = html.mainCanvas;
-const ctx = canv.getContext('2d');
+const [cw, ch] = [canv.width, canv.height];
+const ctx = canv.getContext(
+   '2d',
+   { willReadFrequently: true } // CPU rendering
+);
 
-const zoom = 10; // image magnification
-const gap = 1; // between magnified pixels
+let zoom = parseInt(html.zoom.value); // image magnification
+let gap = 1; // between magnified pixels
 const space = 20; // between images
 let iw, ih, iData, iData2, iDataDf;
 
-const drawPixel = (row, col, offX, offY, zoom, iData) => {
+let imgSrc, fData; // loaded image and rgba-data
+let msgLoad = '', msgStatus = ''; // loading messages
+
+const drawPixel = (row, col, offX, offY, iData) => {
    const ind = 4 * (row * iw + col);
    const [r, g, b, a] = iData.slice(ind, ind + 4);
    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
@@ -37,7 +48,7 @@ const drawZoomedImg = (offX, offY, iData) => {
    for (let i = 0; i < len; i++) {
       const col = i % iw;
       const row = Math.floor(i / iw);
-      drawPixel(row, col, offX, offY, zoom, iData);
+      drawPixel(row, col, offX, offY, iData);
    }
 };
 
@@ -47,88 +58,72 @@ const readInt32BigEndian = (byteArr, off) =>
    (byteArr[off + 2] << 8) |
     byteArr[off + 3];
 
-const serialiseToRGBA = fData => {
-   const iw = readInt32BigEndian(fData, 0);
-   const ih = readInt32BigEndian(fData, 4);
-   const numChan = fData[8];
-   const bitDepth = fData[9];
-   const bitsPerPixel = numChan * bitDepth;
-
-   const serData = new Uint8ClampedArray(iw * ih * 4);
-
-   const pixData = fData.subarray(12);
-   
-   if (bitDepth == 8) {
-      if (numChan == 4) {
-         serData.set(pixData);
-      }
-      else if (numChan == 3) {
-         let cnt = 0;
-         for (let i = 0; i < pixData.length; i += 3) {
-            serData[cnt] = pixData[i];
-            serData[cnt + 1] = pixData[i + 1];
-            serData[cnt + 2] = pixData[i + 2];
-            serData[cnt + 3] = 255;
-            cnt += 4;
-         }
-      }
-   }
-
-   return serData;
-
-   //var scanlineBitLen = bitsPerPixel * hdrCh.width;
-   //var wholeBytes = scanlineBitLen / 8;
-   //int scanlineBytelen = scanlineBitLen % 8 == 0 ? wholeBytes : wholeBytes + 1;
-};
-
 window.electronAPI.onFilePath(obj => {
 
    const fpath = obj.href;
+   fData = obj.fdat;
 
-   console.log(`Loading image '${fpath}'...`);
+   //log(`Loading image '${fpath}'...`);
+   msgLoad = `Loading image '${fpath}'...`;
+   updateMsg(msgLoad);
 
    new Promise(res => {
       const img = new Image();
       img.onload = () => { res(img) };
       img.src = fpath;
    })
-      .then(imgSrc => { onload(imgSrc, obj.fdat) })
-      .catch(err => { console.error('Loading image failed: ', err) });
+      .then(_imgSrc => {
+         imgSrc = _imgSrc;
+         onload();
+      })
+      .catch(err => {
+         msgStatus = `FAIL (${err})`;
+         updateMsg(msgLoad + msgStatus);
+      });
 });
 
-const onload = (imgSrc, fData) => {
-
-   ctx.clearRect(0, 0, canv.width, canv.height);
+const onload = () => {
 
    iw = imgSrc.width;
    ih = imgSrc.height;
+
+   const iwZoomed = iw * (zoom + gap) - gap;
+   const ihZoomed = ih * (zoom + gap) - gap;
+
+   canv.width = Math.max(cw, (iwZoomed + space )* 3 + iw);
+   canv.height = Math.max(ch, ihZoomed);
+
+   ctx.clearRect(0, 0, canv.width, canv.height);
+
    ctx.drawImage(imgSrc, 0, 0);
    const canvData = ctx.getImageData(0, 0, iw, ih);
-   iData = canvData.data;
+   iData = canvData.data; // Uint8Clamped
 
-   console.log(`width: ${iw}, height: ${ih}`);
+   //log(`width: ${iw}, height: ${ih}`);
+   msgStatus = `OK (${iw}x${ih})`;
+   updateMsg(msgLoad + msgStatus);
 
    let iOffX = iw + space;
    let iOffY = 0;
    drawZoomedImg(iOffX, iOffY, iData);
 
-   iData2 = serialiseToRGBA(fData);
+   iData2 = fData.subarray(8); // Uint8Clamped
 
-   const iwZoomed = iw * (zoom + gap);
-   const ihZoomed = ih * (zoom + gap);
    iOffX += iwZoomed + space;
    drawZoomedImg(iOffX, iOffY, iData2);
 
-   const iDataPix = new Int32Array(iData.buffer);
-   const iDataPix2 = new Int32Array(iData2.buffer);
+   //const iDataPix = new Int32Array(iData.buffer);
+   //const iDataPix2 = new Int32Array(iData2.buffer.slice(8));
 
    iDataDf = new Uint8ClampedArray(iData.length);
 
-   for (let i = 0; i < iDataPix.length; i++) {
-      const r = 4 * i;
-      const a = r + 3;
-      iDataDf[r] = iDataPix[i] == iDataPix2[i] ? 48 : 255;
-      iDataDf[a] = 255;
+   for (let i = 0; i < iData.length; i += 4) {
+      for (let ch = 0; ch < 4; ch++) {
+         const ind = i + ch;
+         const dif = Math.abs(iData[ind] - iData2[ind]) * 48;
+         iDataDf[ind] = dif;  
+      }
+      iDataDf[i + 3] = 255;
    }
 
    iOffX += iwZoomed + space;
@@ -157,3 +152,14 @@ const onload = (imgSrc, fData) => {
          `row: ${row}, col: ${col}\n\n${iDataPixInf}\n${iDataPixInf2}`;
    });
 };
+
+html.zoom.addEventListener('input', () => {
+   zoom = parseInt(html.zoom.value);
+   html.zoomLabel.innerText = `zoom level (x${zoom}):`;
+   if(imgSrc && fData) onload();
+});
+
+html.gap.addEventListener('change', () => { 
+   gap = html.gap.checked ? 1 : 0;
+   if(imgSrc && fData) onload();
+});
