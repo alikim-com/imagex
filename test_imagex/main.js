@@ -98,6 +98,19 @@ const createWindow = () => {
                click: () => { nativeTheme.themeSource = 'system'}
             }
          ]
+      },
+      {
+         label: 'Toolbox',
+         submenu: [
+            {
+               label: 'PNG decoder test',
+               click: () => { mainWindow.loadFile('index.html') }
+            },
+            {
+               label: 'Resampling test',
+               click: () => { mainWindow.loadFile('resampling.html') }
+            },
+         ]
       }
    ]);
    
