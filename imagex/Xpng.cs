@@ -7,7 +7,7 @@ namespace imagex;
 /// Contains decompressed pixel data while preserving
 /// original pixel packing of PNG format
 /// </summary>
-public class Xdat(
+public class Xpng(
     ColorType _cType,
     int _bitDepth,
     int _numChan,

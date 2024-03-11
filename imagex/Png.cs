@@ -181,7 +181,7 @@ public class Png(
         return new Png((ColorType)hdrCh.cType, hdrCh.bitDepth, hdrCh.width, hdrCh.height, chList);
     }
 
-    public static Xdat ToXdat(Png png, bool verbose = true)
+    public static Xpng ToXdat(Png png, bool verbose = true)
     {
         var decompDataStream = new MemoryStream();
 
@@ -229,7 +229,7 @@ public class Png(
             """);
         }
 
-        return new Xdat(
+        return new Xpng(
             cType,
             hdrCh.bitDepth,
             numChan,
@@ -247,8 +247,8 @@ public class Png(
         int height)
     {
 
-        Utils.PrintBytes(buffer);
-        Utils.Log("---");
+        //Utils.PrintBytes(buffer);
+        //Utils.Log("---");
 
         int row = 0;
         int off = 1;

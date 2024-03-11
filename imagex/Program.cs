@@ -1,5 +1,6 @@
 ﻿
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Hashing;
 
