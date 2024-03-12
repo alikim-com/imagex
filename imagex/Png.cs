@@ -181,7 +181,7 @@ public class Png(
         return new Png((ColorType)hdrCh.cType, hdrCh.bitDepth, hdrCh.width, hdrCh.height, chList);
     }
 
-    public static Xpng ToXdat(Png png, bool verbose = true)
+    public static Xpng ToXpng(Png png, bool verbose = true)
     {
         var decompDataStream = new MemoryStream();
 

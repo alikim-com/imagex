@@ -11,7 +11,8 @@ internal class Program
     static void Main()
     {
         //TestCRC32();
-        TestLoad();
+        //TestLoadPng();
+        TestLoadJpg();
     }
 
     static void TestCRC32()
@@ -66,7 +67,28 @@ internal class Program
         // 00111000 00001001 11111001 10010100
     }
 
-    static void TestLoad()
+    static void TestLoadJpg()
+    {
+        var path = "../../../testImages";
+
+        Console.WriteLine("Please enter file name to decode:");
+        string fname = Console.ReadLine() ?? "";
+        if (fname == "") fname = "baloon.jpg";
+
+        Console.WriteLine("decoding '" + fname + "'..");
+
+        var images = Jpg.FromFile(path, fname);
+        foreach(var jpg in images) Console.WriteLine(jpg);
+                
+        //var xdat = Png.ToXpng(png);
+        //xdat.ToFile(path, fname);
+
+        //Console.WriteLine("translating to rgba..");
+        //var rgbaDat = xdat.ToRgba();
+        //rgbaDat.ToFile(path, fname);
+    }
+
+    static void TestLoadPng()
     {
         var path = "../../../testImages";
 
@@ -78,7 +100,7 @@ internal class Program
         Console.WriteLine(png);
         
         Console.WriteLine("decoding '" + fname + "'..");
-        var xdat = Png.ToXdat(png);
+        var xdat = Png.ToXpng(png);
         xdat.ToFile(path, fname);
 
         Console.WriteLine("translating to rgba..");
