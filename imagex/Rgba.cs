@@ -17,8 +17,8 @@ public class Rgba(
     {
         byte[][] rgbaData =
         [
-            width.BytesLeftToRight(),
-            height.BytesLeftToRight(),
+            Width.BytesLeftToRight(),
+            Height.BytesLeftToRight(),
             pixelData
         ];
         Utils.WriteFileBytes(path, fname + ".rgba", rgbaData);
@@ -56,11 +56,11 @@ public class Rgba(
 
         // in bytes
         int bWidth = width * 4;
-        int srcOff = (srcY * src.width + srcX) * 4;
-        int dstOff = (dstY * dst.width + dstX) * 4;
-        int srcSkip = (src.width - width) * 4;
-        int dstSkip = (dst.width - width) * 4;
-        int srcLastLine = srcOff + src.width * (height - 1) * 4;
+        int srcOff = (srcY * src.Width + srcX) * 4;
+        int dstOff = (dstY * dst.Width + dstX) * 4;
+        int srcSkip = (src.Width - width) * 4;
+        int dstSkip = (dst.Width - width) * 4;
+        int srcLastLine = srcOff + src.Width * (height - 1) * 4;
 
         int dOff;
         switch (mode)

@@ -25,8 +25,8 @@ public class Xpng(
     {
         byte[][] xData =
         [
-            width.BytesLeftToRight(),
-            height.BytesLeftToRight(),
+            Width.BytesLeftToRight(),
+            Height.BytesLeftToRight(),
             [(byte)numChan, (byte)bitDepth, 0, 0],
             pixelData
         ];
@@ -36,7 +36,7 @@ public class Xpng(
     public Rgba ToRgba()
     {
         var len = pixelData.Length;
-        var rgbaData = new byte[4 * width * height];
+        var rgbaData = new byte[4 * Width * Height];
         int rgbaOff;
 
         if (bitDepth == 8)
@@ -89,7 +89,7 @@ public class Xpng(
                 ($"Rgba doesn't support bitdepth '{bitDepth}'");
         }
 
-        return new Rgba(width, height, rgbaData);
+        return new Rgba(Width, Height, rgbaData);
     }
 
     public override string ToString()
@@ -99,8 +99,8 @@ public class Xpng(
         cType: {cType}
         bitDepth: {bitDepth}
         channels: {numChan}
-        width: {width}
-        height: {height}
+        width: {Width}
+        height: {Height}
           
         """;
     }

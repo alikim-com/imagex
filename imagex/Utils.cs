@@ -21,7 +21,7 @@ public static class ArraySegmentExtensions
 
 public static class ByteArrayExtensions 
 {
-    public static string HexStr(this byte[] bytes, string fmt = " ")
+    public static string ToString(this byte[] bytes, string fmt = " ")
     {
         string hex = BitConverter.ToString(bytes);
         return hex.Replace("-", fmt);
@@ -71,6 +71,15 @@ public static class IntExtensions
     {
         var bytes = BitConverter.GetBytes(val);
         string hex = BitConverter.ToString(bytes);
+        return hex.Replace("-", fmt);
+    }
+
+    public static string HexStr(this int val, string fmt = "")
+    {
+        int memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
+        var bytes = BitConverter.GetBytes(memLayoutBE);
+        var nzBytes = bytes.SkipWhile(b => b == 0x00).ToArray();
+        string hex = BitConverter.ToString(nzBytes);
         return hex.Replace("-", fmt);
     }
 

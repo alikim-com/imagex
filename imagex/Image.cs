@@ -1,7 +1,7 @@
 ﻿
 namespace imagex;
 
-public class Image(Image.Format _format, int _width, int _height)
+public class Image
 {
     public enum Format
     {
@@ -11,9 +11,28 @@ public class Image(Image.Format _format, int _width, int _height)
         Rgba,
     }
 
-    public readonly Format format = _format;
-    public readonly int width = _width;
-    public readonly int height = _height;
+    public readonly Format format;
+
+    private int _Width;
+    public int Width
+    {
+        get => _Width;
+        protected set { _Width = value; }
+    }
+
+    private int _Height;
+    public int Height
+    {
+        get => _Height;
+        protected set { _Height = value; }
+    }
+
+    public Image (Format _format, int _width, int _height)
+    {
+        Width = _width;
+        Height = _height;
+        format = _format;
+    }
 }
 
 
