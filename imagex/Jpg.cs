@@ -1,18 +1,25 @@
 ﻿
 using System.Buffers.Binary;
-using static imagex.Png.Chunk;
+
 using static imagex.Segment;
 
 namespace imagex;
 
 public class Jpg
 {
+    public struct Marker
+    {
+        public SgmType type;
+        public int pos;
+        public int len;
+    }
+
     ArraySegment<byte> data;
-    readonly Dictionary<SgmType, KeyValuePair<int, int>> markers;
+    readonly List<Marker> markers;
 
     public Jpg(
-        ArraySegment<byte> _data, 
-        Dictionary<SgmType, KeyValuePair<int, int>> _markers)
+        ArraySegment<byte> _data,
+        List<Marker> _markers)
     {
         data = _data;
         markers = _markers;
@@ -26,35 +33,41 @@ public class Jpg
         var len = data.Length;
 
         var mArr = Enum.GetValues(typeof(SgmType));
-        Dictionary<SgmType, KeyValuePair<int, int>> markers = new();
+
+        List<Marker> markers = new();
 
         int ioff = 0;
-        for (int i = 0; i < len; i++)
+        for (int i = 0; i < len - 1; i++)
         {
             if (data[i] != 0xFF) continue;
-            var val = BinaryPrimitives.ReadInt32BigEndian
-                (new ReadOnlySpan<byte>(data, i, 4));
-            var vmrk = val >> 16;
+
+            int vmrk = 0xff00 + data[i + 1];
+            
             foreach (int mrk in mArr)
             {
                 if (vmrk != mrk) continue;
 
-                var smrk = (SgmType)mrk;
-                int slen = val & 0xFFFF;
+                var smrk = (SgmType)mrk; 
 
                 if (smrk == SgmType.SOI)
                 {
-                    ioff = i;
+                    ioff = i + 2;
                     markers = new();
+                    i++;
+                    break;
                 }
-
-                markers.Add(smrk, new KeyValuePair<int, int>(i,slen));
-
-                if (smrk == SgmType.EOI)
+                else if (smrk == SgmType.EOI)
                 {
-                    var ars = new ArraySegment<byte>(data, ioff, i - ioff + 2);
+                    var ars = new ArraySegment<byte>(data, ioff, i - ioff);
                     images.Add(new Jpg(ars, markers));
+                    i++;
+                    break;
                 }
+
+                int slen = BinaryPrimitives.ReadInt32BigEndian
+                (new ReadOnlySpan<byte>(data, i, 4)) & 0xFFFF;
+
+                markers.Add(new Marker { type = smrk, pos = i, len = slen });
 
                 i += slen; // FromFileRobust w/o this line
 
@@ -77,16 +90,16 @@ public class Jpg
         var raw = data.SneakPeek();
 
         string mrkStr = "";
-        foreach(var (k,p) in markers)
+        foreach(var mrk in markers)
         {
-            mrkStr += $"{k} pos: {p.Key}, len: {p.Value}\n";
+            mrkStr += $"   {mrk.type,5} pos: 0x{mrk.pos:X8}, len: {mrk.len,9}\n";
         }
 
         return
         $"""
         image
             raw data: {raw}
-            {mrkStr} 
+        {mrkStr} 
         """;
     }
 }
