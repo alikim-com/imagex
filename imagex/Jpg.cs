@@ -1,6 +1,5 @@
 ﻿
 using System.Buffers.Binary;
-
 using static imagex.Segment;
 
 namespace imagex;
@@ -72,7 +71,8 @@ public class Jpg : Image
                 int slen = BinaryPrimitives.ReadInt32BigEndian
                 (new ReadOnlySpan<byte>(data, i, 4)) & 0xFFFF;
 
-                markers.Add(new Marker { type = smrk, pos = i, len = slen });
+                // starts after len bytes
+                markers.Add(new Marker { type = smrk, pos = i + 2, len = slen - 2 });
 
                 i += slen; // FromFileRobust w/o this line
 
@@ -147,47 +147,215 @@ public class SgmAPP0 : Segment
 {
     enum DensityUnits
     {
-        None = 0,
+        Unitless = 0,
         PixPerInch = 1,
         PixPerCent = 2
     }
 
-    int length;
-    string Id;
-    byte mjVer;
-    byte mnVer;
-    DensityUnits denU;
-    ushort denX;
-    ushort denY;
+    readonly string Id;
+    readonly byte mjVer;
+    readonly byte mnVer;
+    readonly DensityUnits denU;
+    readonly ushort denX;
+    readonly ushort denY;
 
-    byte thWidth;
-    byte thHeight;
-    Rgba thumb;
+    readonly byte thWidth;
+    readonly byte thHeight;
+    readonly Rgba? thumb;
 
     public SgmAPP0(
         Jpg.Marker _marker,
         ArraySegment<byte> _data) : base(_marker, _data)
     {
+        status = (int)Status.OK;
 
+        Id = string.Join("", _data.Slice(0, 5).TakeWhile(b => b != 0).Select(b => (char)b));
 
-        //var len = pixelData.Length;
-        //var rgbaData = new byte[4 * Width * Height];
-        //int rgbaOff;
-        //Array.Fill<byte>(rgbaData, 0xFF);
-        //rgbaOff = 0;
-        //for (int i = 0; i < len; i += 3)
-        //{
-        //    Array.Copy(pixelData, i, rgbaData, rgbaOff, 3);
-        //    rgbaOff += 4;
-        //}
+        mjVer = _data[5];
+        mnVer = _data[6];
+
+        denU = (DensityUnits)_data[7];
+
+        var soff = _data.Offset;
+        var sdat = _data.Array;
+
+        denX = BinaryPrimitives.ReadUInt16BigEndian
+            (new ReadOnlySpan<byte>(sdat, soff + 8, 2));
+
+        denY = BinaryPrimitives.ReadUInt16BigEndian
+            (new ReadOnlySpan<byte>(sdat, soff + 10, 2));
+
+        thWidth = _data[12];
+        thHeight = _data[13];
+
+        if (thWidth > 0 && thHeight > 0)
+        {
+            var size = thWidth * thHeight;
+
+            if (size != _data.Count - 14)
+            {
+                status |= (int)Status.ThumbSizeMismatch;
+                return;
+            }
+
+            var rgbaData = new byte[4 * size];
+            Array.Fill<byte>(rgbaData, 0xFF);
+
+            int rgbaOff = 0;
+            for (int i = soff + 14; i < size * 3; i += 3)
+            {
+                Buffer.BlockCopy(sdat!, i, rgbaData, rgbaOff, 3);
+                rgbaOff += 4;
+            }
+
+            thumb = new Rgba(thWidth, thHeight, rgbaData);
+        }
+    }
+
+    protected override string ParsedData()
+    {
+        string tn = thumb != null ?
+            $"{thWidth}x{thHeight} {thumb.pixelData.SneakPeek()}" : "none";
+
+        return
+        $"""
+              id: {Id}
+              ver {mjVer}.{mnVer.ToString().PadLeft(2, '0')}
+              density: {denX}x{denY} {denU}
+              thumbnail: {tn}
+              status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+        """;
     }
 
 }
 /// <summary>
 /// (Exif) Exchangeable image file format
 /// </summary>
-public class SgmAPP1(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+public class SgmAPP1 : Segment
 {
+
+    readonly string Id;
+    bool isLE;
+    List<IFD> ifds = [];
+
+    public SgmAPP1(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
+    {
+        status = (int)Status.OK;
+
+        Id = string.Join("", _data.Slice(0, 6).TakeWhile(b => b != 0).Select(b => (char)b));
+
+        var ordType = BinaryPrimitives.ReadUInt16BigEndian
+            (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 6, 2));
+        isLE = ordType == 0x4949;
+
+        var data = _data.Slice(6);
+
+        if (isLE) ParseLE(data); else ParseBE(data);
+
+    }
+
+    /// <summary>
+    /// Creates a list of IFDs and processes thumbnail
+    /// </summary>
+    /// <param name="_data">
+    /// Starts at 49492a00 - internal IFD offsets origin
+    /// </param>
+    static void ParseLE(ArraySegment<byte> _data)
+    {
+        var ifdOff = BinaryPrimitives.ReadInt32LittleEndian
+            (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
+
+        while (ifdOff > 0)
+        {
+            ifdOff = IFD.CreateLE(ifdOff, _data, out Status status);
+        }
+    }
+
+    static void ParseBE(ArraySegment<byte> _data)
+    {
+    }
+
+    protected override string ParsedData()
+    {
+        //string tn = thumb != null ?
+        //    $"{thWidth}x{thHeight} {thumb.pixelData.SneakPeek()}" : "none";
+
+        string byteOrd = isLE ? "LittleEndian" : "BigEndinan";
+
+        return
+        $"""
+              id: {Id}
+              byte order: {byteOrd}
+              status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+        """;
+    }
+
+    /// <summary>
+    /// Image File Directory
+    /// </summary>
+    class IFD
+    {
+        struct Entry
+        {
+            ushort tag;
+            ushort format;
+            uint compNum;
+            uint dValue;
+        }
+
+        readonly ushort entryNum;
+        readonly List<Entry> entries;
+        readonly int nextOff;
+
+        internal static int CreateLE(
+            int ifdOff, 
+            ArraySegment<byte> data,
+            out Status status)
+        {
+            status = Status.None;
+
+            int soff = data.Offset + ifdOff;
+            var sdat = data.Array;
+            var slen = sdat!.Length;
+
+            if (soff > slen - 2) {
+                status = Status.IFDOutOfBounds;
+                return 0;
+            }
+
+            var entryNum = BinaryPrimitives.ReadUInt16LittleEndian
+            (new ReadOnlySpan<byte>(sdat, soff, 2));
+
+            var entryLen = 12 * entryNum;
+
+            soff += 2 + entryLen;
+
+            if (soff > slen - 4)
+            {
+                status = Status.IFDOutOfBounds;
+                return 0;
+            }
+
+            int nextOff = BinaryPrimitives.ReadInt32LittleEndian
+            (new ReadOnlySpan<byte>(sdat, soff, 4));
+
+            // block integrity OK
+            // create individual entries
+
+            // create IFD
+
+            return nextOff;
+        }
+
+        IFD(ushort _entryNum, List<Entry> _entries, int _nextOff)
+        {
+            entryNum = _entryNum;
+            entries = _entries;
+            nextOff = _nextOff;
+        }
+    }
 }
 /// <summary>
 /// Comment
@@ -225,9 +393,19 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         { SgmType.COM, typeof(SgmCOM)},
     };
 
-    protected readonly ArraySegment<byte> data = _data;
+    public enum Status
+    {
+        None = 0,
+        OK = 1,
+        ThumbSizeMismatch = 2,
+        IFDOutOfBounds = 4,
+    }
 
-    protected readonly Jpg.Marker marker = _marker;
+    protected int status;
+
+    readonly ArraySegment<byte> data = _data;
+
+    readonly Jpg.Marker marker = _marker;
 
     public static Segment Create(Jpg.Marker _marker, ArraySegment<byte> _data)
     {

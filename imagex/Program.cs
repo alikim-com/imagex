@@ -73,7 +73,7 @@ internal class Program
 
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
-        if (fname == "") fname = "baloon.jpg";
+        if (fname == "") fname = "42.jpg";// "baloon.jpg";
 
         Console.WriteLine("decoding '" + fname + "'..");
 
