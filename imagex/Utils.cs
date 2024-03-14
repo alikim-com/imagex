@@ -34,6 +34,13 @@ public static class ByteArrayExtensions
         BitConverter.ToString(arr, 0, depth) + " .. " + BitConverter.ToString(arr, len - depth, depth);
         return outp.Replace("-", " ");
     }
+
+    public static byte[] Slice(this byte[] arr, int start, int length)
+    {
+        var slice = new byte[length];
+        Buffer.BlockCopy(arr, start, slice, 0, length);
+        return slice;
+    }
 }
 
 public static class IntExtensions

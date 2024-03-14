@@ -1,4 +1,6 @@
-﻿
+﻿// https://www.media.mit.edu/pia/Research/deepview/exif.html
+// table tag info extractor ./tagExtractor.js
+
 using System.Buffers.Binary;
 using static imagex.Segment;
 
@@ -32,7 +34,7 @@ public class Jpg : Image
 
     public static List<Jpg> FromFile(string path, string fname)
     {
-        var images = new List<Jpg>();
+        List<Jpg> JpgList = [];
 
         var data = Utils.ReadFileBytes(path, fname);
         var len = data.Length;
@@ -63,27 +65,27 @@ public class Jpg : Image
                 } else if (smrk == SgmType.EOI)
                 {
                     var ars = new ArraySegment<byte>(data, ioff, i - ioff);
-                    images.Add(new Jpg(ars, markers));
+                    JpgList.Add(new Jpg(ars, markers));
                     i++;
                     break;
                 }
 
-                int slen = BinaryPrimitives.ReadInt32BigEndian
+                int rawLen = BinaryPrimitives.ReadInt32BigEndian
                 (new ReadOnlySpan<byte>(data, i, 4)) & 0xFFFF;
 
-                // starts after len bytes
-                markers.Add(new Marker { type = smrk, pos = i + 2, len = slen - 2 });
+                // starts after len-bytes
+                markers.Add(new Marker { type = smrk, pos = i + 2, len = rawLen - 2 });
 
-                i += slen; // FromFileRobust w/o this line
+                i += rawLen; // FromFileRobust w/o this line
 
                 break;
             }
         }
 
-        return images;
+        return JpgList;
     }
 
-    public static Xjpg ToXdat(Jpg png, bool verbose = true)
+    public static Xjpg ToXjpg(Jpg png, bool verbose = true)
     {
 
         return new Xjpg();
@@ -176,14 +178,14 @@ public class SgmAPP0 : Segment
 
         denU = (DensityUnits)_data[7];
 
-        var soff = _data.Offset;
-        var sdat = _data.Array;
+        var rawOff = _data.Offset;
+        var rawDat = _data.Array;
 
         denX = BinaryPrimitives.ReadUInt16BigEndian
-            (new ReadOnlySpan<byte>(sdat, soff + 8, 2));
+            (new ReadOnlySpan<byte>(rawDat, rawOff + 8, 2));
 
         denY = BinaryPrimitives.ReadUInt16BigEndian
-            (new ReadOnlySpan<byte>(sdat, soff + 10, 2));
+            (new ReadOnlySpan<byte>(rawDat, rawOff + 10, 2));
 
         thWidth = _data[12];
         thHeight = _data[13];
@@ -202,9 +204,9 @@ public class SgmAPP0 : Segment
             Array.Fill<byte>(rgbaData, 0xFF);
 
             int rgbaOff = 0;
-            for (int i = soff + 14; i < size * 3; i += 3)
+            for (int i = rawOff + 14; i < size * 3; i += 3)
             {
-                Buffer.BlockCopy(sdat!, i, rgbaData, rgbaOff, 3);
+                Buffer.BlockCopy(rawDat!, i, rgbaData, rgbaOff, 3);
                 rgbaOff += 4;
             }
 
@@ -236,7 +238,7 @@ public class SgmAPP1 : Segment
 {
 
     readonly string Id;
-    bool isLE;
+    readonly bool isLE;
     List<IFD> ifds = [];
 
     public SgmAPP1(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
@@ -256,7 +258,7 @@ public class SgmAPP1 : Segment
     }
 
     /// <summary>
-    /// Creates a list of IFDs and processes thumbnail
+    /// Creates a list of IFDs and registers thumbnail data
     /// </summary>
     /// <param name="_data">
     /// Starts at 49492a00 - internal IFD offsets origin
@@ -266,10 +268,11 @@ public class SgmAPP1 : Segment
         var ifdOff = BinaryPrimitives.ReadInt32LittleEndian
             (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
 
+        Status status = Status.None;
         while (ifdOff > 0)
-        {
-            ifdOff = IFD.CreateLE(ifdOff, _data, out Status status);
-        }
+            ifdOff = IFD.CreateLE(ifdOff, _data, out status);
+
+        if (status != Status.OK) { }
     }
 
     static void ParseBE(ArraySegment<byte> _data)
@@ -299,61 +302,237 @@ public class SgmAPP1 : Segment
     {
         struct Entry
         {
-            ushort tag;
+            TagEnum tag;
             ushort format;
             uint compNum;
-            uint dValue;
+            object value;
         }
 
-        readonly ushort entryNum;
         readonly List<Entry> entries;
         readonly int nextOff;
 
         internal static int CreateLE(
-            int ifdOff, 
+            int ifdOff,
             ArraySegment<byte> data,
             out Status status)
         {
-            status = Status.None;
+            status = Status.OK;
 
-            int soff = data.Offset + ifdOff;
-            var sdat = data.Array;
-            var slen = sdat!.Length;
+            int _rawOff = data.Offset + ifdOff; // IFD start = 0x4949.. + ifdOff
+            int rawOff = _rawOff;
+            var rawDat = data.Array;
+            var rawLen = rawDat!.Length;
 
-            if (soff > slen - 2) {
+            if (rawOff > rawLen - 2)
+            {
                 status = Status.IFDOutOfBounds;
                 return 0;
             }
 
             var entryNum = BinaryPrimitives.ReadUInt16LittleEndian
-            (new ReadOnlySpan<byte>(sdat, soff, 2));
+            (new ReadOnlySpan<byte>(rawDat, rawOff, 2));
 
-            var entryLen = 12 * entryNum;
+            int entryLen = 12;
 
-            soff += 2 + entryLen;
+            var totLen = entryLen * entryNum;
 
-            if (soff > slen - 4)
+            rawOff += 2 + entryLen;
+
+            if (rawOff > rawLen - 4)
             {
                 status = Status.IFDOutOfBounds;
                 return 0;
             }
 
             int nextOff = BinaryPrimitives.ReadInt32LittleEndian
-            (new ReadOnlySpan<byte>(sdat, soff, 4));
+            (new ReadOnlySpan<byte>(rawDat, rawOff, 4));
 
             // block integrity OK
             // create individual entries
 
-            // create IFD
+            List<Entry> entries = [];
+            rawOff = _rawOff + 2;
+
+            for (int i = 0; i < entryNum; i++)
+            {
+                uint tagFmt = BinaryPrimitives.ReadUInt32LittleEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff, 4));
+
+                TagEnum tag = (TagEnum)(int)(tagFmt >> 16);
+                ushort format = (ushort)(tagFmt & 0x0000FFFF);
+
+                if (!BitesPerCompon.TryGetValue(format, out int byteNum))
+                {
+                    status = Status.IFDFormatError;
+                    return 0;
+                }
+
+                uint compNum = BinaryPrimitives.ReadUInt32LittleEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 4, 4));
+
+                int datLen = (int)(compNum * byteNum);
+                int datOff = datLen <= 4 ? rawOff + 8 : BinaryPrimitives.ReadInt32LittleEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 8, 4)) + data.Offset;
+                object value = format switch
+                {
+                    1 => rawDat[datOff],
+                    2 => rawDat.Slice(datOff, datLen),
+                    3 => BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
+                    4 => BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                    5 => new ulong[2]
+                    {
+                        BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                        BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 8, 8)),
+                    },
+                    6 => (sbyte)rawDat[datOff],
+                    7 => rawDat.Slice(datOff, datLen),
+                    8 => BinaryPrimitives.ReadInt16LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
+                    9 => BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                    10 => new long[2]
+                    {
+                        BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 8, 8)),
+                    },
+                    11 => BinaryPrimitives.ReadSingleLittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)),
+                    12 => BinaryPrimitives.ReadDoubleLittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                    _ => 0,
+                };
+
+                // create IFD
+
+                rawOff += entryLen;
+            }
 
             return nextOff;
         }
 
-        IFD(ushort _entryNum, List<Entry> _entries, int _nextOff)
+        IFD(List<Entry> _entries, int _nextOff)
         {
-            entryNum = _entryNum;
             entries = _entries;
             nextOff = _nextOff;
+        }
+
+        static readonly Dictionary<int, int> BitesPerCompon = new() {
+            {1, 1}, {2, 1}, {3, 2}, {4, 4}, {5, 8}, {6, 1},
+            {7, 1}, {8, 2}, {9, 4}, {10, 8}, {11, 4}, {12, 8}
+        };
+        //static Dictionary<int, Type> ComponType = new() {
+        //    {1, typeof(byte)}, {2, typeof(string)}, {3, typeof(ushort)},
+        //    {4, typeof(ulong)}, {5, typeof(uint[])}, {6, typeof(sbyte)},
+        //    {7, typeof(byte[])}, {8, typeof(short)}, {9, typeof(long)},
+        //    {10, typeof(int[])}, {11, typeof(float)}, {12, typeof(double)}
+        //};
+
+        // object obj = new int[] { 1, 2, 3 };
+        // var something = Convert.ChangeType(obj, typeof(int[]));
+
+        public enum TagEnum
+        {
+            // IFD0
+            ImageDescription = 0x010e,
+            Make = 0x010f,
+            Model = 0x0110,
+            Orientation = 0x0112,
+            XResolution = 0x011a,
+            YResolution = 0x011b,
+            ResolutionUnit = 0x0128,
+            Software = 0x0131,
+            DateTime = 0x0132,
+            WhitePoint = 0x013e,
+            PrimaryChromaticities = 0x013f,
+            YCbCrCoefficients = 0x0211,
+            YCbCrPositioning = 0x0213,
+            ReferenceBlackWhite = 0x0214,
+            Copyright = 0x8298,
+            ExifOffset = 0x8769,
+            // SubIFD
+            ExposureTime = 0x829a,
+            FNumber = 0x829d,
+            ExposureProgram = 0x8822,
+            ISOSpeedRatings = 0x8827,
+            ExifVersion = 0x9000,
+            DateTimeOriginal = 0x9003,
+            DateTimeDigitized = 0x9004,
+            ComponentConfiguration = 0x9101,
+            CompressedBitsPerPixel = 0x9102,
+            ShutterSpeedValue = 0x9201,
+            ApertureValue = 0x9202,
+            BrightnessValue = 0x9203,
+            ExposureBiasValue = 0x9204,
+            MaxApertureValue = 0x9205,
+            SubjectDistance = 0x9206,
+            MeteringMode = 0x9207,
+            LightSource = 0x9208,
+            Flash = 0x9209,
+            FocalLength = 0x920a,
+            MakerNote = 0x927c,
+            UserComment = 0x9286,
+            FlashPixVersion = 0xa000,
+            ColorSpace = 0xa001,
+            ExifImageWidth = 0xa002,
+            ExifImageHeight = 0xa003,
+            RelatedSoundFile = 0xa004,
+            ExifInteroperabilityOffset = 0xa005,
+            FocalPlaneXResolution = 0xa20e,
+            FocalPlaneYResolution = 0xa20f,
+            FocalPlaneResolutionUnit = 0xa210,
+            SensingMethod = 0xa217,
+            FileSource = 0xa300,
+            SceneType = 0xa301,
+            // IFD1
+            ImageWidth = 0x0100,
+            ImageLength = 0x0101,
+            BitsPerSample = 0x0102,
+            Compression = 0x0103,
+            PhotometricInterpretation = 0x0106,
+            StripOffsets = 0x0111,
+            SamplesPerPixel = 0x0115,
+            RowsPerStrip = 0x0116,
+            StripByteConunts = 0x0117,
+            PlanarConfiguration = 0x011c,
+            JpegIFOffset = 0x0201,
+            JpegIFByteCount = 0x0202,
+            YCbCrSubSampling = 0x0212,
+            // Misc
+            NewSubfileType = 0x00fe,
+            SubfileType = 0x00ff,
+            TransferFunction = 0x012d,
+            Artist = 0x013b,
+            Predictor = 0x013d,
+            TileWidth = 0x0142,
+            TileLength = 0x0143,
+            TileOffsets = 0x0144,
+            TileByteCounts = 0x0145,
+            SubIFDs = 0x014a,
+            JPEGTables = 0x015b,
+            CFARepeatPatternDim = 0x828d,
+            CFAPattern = 0x828e,
+            BatteryLevel = 0x828f,
+            IPTC_NAA = 0x83bb,
+            InterColorProfile = 0x8773,
+            SpectralSensitivity = 0x8824,
+            GPSInfo = 0x8825,
+            OECF = 0x8828,
+            Interlace = 0x8829,
+            TimeZoneOffset = 0x882a,
+            SelfTimerMode = 0x882b,
+            FlashEnergy = 0x920b,
+            SpatialFrequencyResponse = 0x920c,
+            Noise = 0x920d,
+            ImageNumber = 0x9211,
+            SecurityClassification = 0x9212,
+            ImageHistory = 0x9213,
+            SubjectLocation = 0x9214,
+            ExposureIndex = 0x9215,
+            TIFF_EPStandardID = 0x9216,
+            SubSecTime = 0x9290,
+            SubSecTimeOriginal = 0x9291,
+            SubSecTimeDigitized = 0x9292,
+            FlashEnergy2 = 0xa20b,
+            SpatialFrequencyResponse2 = 0xa20c,
+            SubjectLocation2 = 0xa214,
+            ExposureIndex2 = 0xa215,
+            CFAPattern2 = 0xa302,
         }
     }
 }
@@ -399,6 +578,7 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         OK = 1,
         ThumbSizeMismatch = 2,
         IFDOutOfBounds = 4,
+        IFDFormatError = 8,
     }
 
     protected int status;
