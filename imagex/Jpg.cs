@@ -241,6 +241,13 @@ public class SgmAPP1 : Segment
     readonly bool isLE;
     readonly List<IFD> ifds;
 
+    enum IFDType
+    {
+        MainImage = 0, // IFD0
+        DigicamInfo = 1, // SubIFD0
+        Thumbnail = 2, // IFD1
+    }
+
     public SgmAPP1(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
         status = (int)Status.OK;
@@ -270,9 +277,23 @@ public class SgmAPP1 : Segment
         var ifdOff = BinaryPrimitives.ReadInt32LittleEndian
             (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
 
+        int ifdName = 0;
+        List<int> subOff = []; // SubIFDs
+
         Status status = Status.None;
         while (ifdOff > 0)
-            ifdOff = IFD.CreateLE(ifdOff, _data, ifds, out status);
+        {
+            ifdOff = IFD.CreateLE(ifdOff, _data, ifds, (IFDType)ifdName, out int sOff, out status);
+            if(sOff != 0) subOff.Add(sOff);
+            ifdName += 2;
+        }
+
+        ifdName = 1;
+        foreach (var sOff in subOff)
+        {
+            IFD.CreateLE(sOff, _data, ifds, (IFDType)ifdName, out int _, out status);
+            ifdName += 2;
+        }
 
         if (status != Status.OK) { }
 
@@ -333,6 +354,7 @@ public class SgmAPP1 : Segment
             }
         }
 
+        readonly IFDType name;
         readonly int offset;
         readonly List<Entry> entries;
         readonly int nextOff;
@@ -341,8 +363,11 @@ public class SgmAPP1 : Segment
             int ifdOff,
             ArraySegment<byte> data,
             List<IFD> ifds,
+            IFDType ifdName,
+            out int subOff,
             out Status status)
         {
+            subOff = 0;
             status = Status.OK;
 
             int _rawOff = data.Offset + ifdOff; // IFD start = 0x4949.. + ifdOff
@@ -425,13 +450,17 @@ public class SgmAPP1 : Segment
                     _ => 0,
                 };
 
+                // subIFD
+                if (tag == TagEnum.ExifOffset && value is uint _subOff)
+                    subOff = (int)_subOff;
+
                 // create IFD
                 entries.Add(new Entry(tag, format, compNum, value));
 
                 rawOff += entryLen;
             }
 
-            ifds.Add(new IFD(ifdOff, entries, nextOff));
+            ifds.Add(new IFD(ifdOff, entries, nextOff, ifdName));
 
             return nextOff;
         }
@@ -447,11 +476,12 @@ public class SgmAPP1 : Segment
             return 0;
         }
 
-        IFD(int _ifdOff, List<Entry> _entries, int _nextOff)
+        IFD(int _ifdOff, List<Entry> _entries, int _nextOff, IFDType _name)
         {
             offset = _ifdOff;
             entries = _entries;
             nextOff = _nextOff;
+            name = _name;
         }
 
         static readonly Dictionary<int, int> BitesPerCompon = new() {
@@ -489,13 +519,13 @@ public class SgmAPP1 : Segment
                 } else
                     valStr = ent.value.ToString()!;
                 
-                entStr += $"      {ent.tag}: {valStr}\n";
+                entStr += $"         {ent.tag}: {valStr}\n";
             }
 
             return
                 $"""
-                {entStr}
-                      next offset: {nextOff}
+                      {name}
+                {entStr}         next offset: {nextOff}
 
                 """;
         }
