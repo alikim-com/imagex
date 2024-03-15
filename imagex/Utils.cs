@@ -41,6 +41,9 @@ public static class ByteArrayExtensions
         Buffer.BlockCopy(arr, start, slice, 0, length);
         return slice;
     }
+
+    public static string ToText(this byte[] bytes) =>
+        string.Concat(bytes.TakeWhile(b => b != 0).Select(b => (char)b));
 }
 
 public static class IntExtensions

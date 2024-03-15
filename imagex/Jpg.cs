@@ -239,7 +239,7 @@ public class SgmAPP1 : Segment
 
     readonly string Id;
     readonly bool isLE;
-    List<IFD> ifds = [];
+    readonly List<IFD> ifds;
 
     public SgmAPP1(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
@@ -253,7 +253,9 @@ public class SgmAPP1 : Segment
 
         var data = _data.Slice(6);
 
-        if (isLE) ParseLE(data); else ParseBE(data);
+        ifds = [];
+
+        if (isLE) ParseLE(data, ifds); else ParseBE(data, ifds);
 
     }
 
@@ -263,20 +265,32 @@ public class SgmAPP1 : Segment
     /// <param name="_data">
     /// Starts at 49492a00 - internal IFD offsets origin
     /// </param>
-    static void ParseLE(ArraySegment<byte> _data)
+    static void ParseLE(ArraySegment<byte> _data, List<IFD> ifds)
     {
         var ifdOff = BinaryPrimitives.ReadInt32LittleEndian
             (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
 
         Status status = Status.None;
         while (ifdOff > 0)
-            ifdOff = IFD.CreateLE(ifdOff, _data, out status);
+            ifdOff = IFD.CreateLE(ifdOff, _data, ifds, out status);
 
         if (status != Status.OK) { }
+
+
     }
 
-    static void ParseBE(ArraySegment<byte> _data)
+    static void ParseBE(ArraySegment<byte> _data, List<IFD> ifds)
     {
+        ifds = [];
+
+        var ifdOff = BinaryPrimitives.ReadInt32BigEndian
+            (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
+
+        Status status = Status.None;
+        while (ifdOff > 0)
+            ifdOff = IFD.CreateBE(ifdOff, _data, out ifds, out status);
+
+        if (status != Status.OK) { }
     }
 
     protected override string ParsedData()
@@ -285,11 +299,14 @@ public class SgmAPP1 : Segment
         //    $"{thWidth}x{thHeight} {thumb.pixelData.SneakPeek()}" : "none";
 
         string byteOrd = isLE ? "LittleEndian" : "BigEndinan";
-
+        string ifdStr = "";
+        foreach (var ifd in ifds)
+            ifdStr += $"{ifd}";
         return
         $"""
               id: {Id}
               byte order: {byteOrd}
+        {ifdStr}
               status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
@@ -300,20 +317,30 @@ public class SgmAPP1 : Segment
     /// </summary>
     class IFD
     {
-        struct Entry
+        internal struct Entry
         {
-            TagEnum tag;
-            ushort format;
-            uint compNum;
-            object value;
+            internal TagEnum tag;
+            internal ushort format;
+            internal uint compNum;
+            internal object value;
+
+            internal Entry(TagEnum _tag, ushort _format, uint _compNum, object _value)
+            {
+                tag = _tag;
+                format = _format;
+                compNum = _compNum;
+                value = _value;
+            }
         }
 
+        readonly int offset;
         readonly List<Entry> entries;
         readonly int nextOff;
 
         internal static int CreateLE(
             int ifdOff,
             ArraySegment<byte> data,
+            List<IFD> ifds,
             out Status status)
         {
             status = Status.OK;
@@ -336,7 +363,7 @@ public class SgmAPP1 : Segment
 
             var totLen = entryLen * entryNum;
 
-            rawOff += 2 + entryLen;
+            rawOff += 2 + totLen;
 
             if (rawOff > rawLen - 4)
             {
@@ -355,11 +382,11 @@ public class SgmAPP1 : Segment
 
             for (int i = 0; i < entryNum; i++)
             {
-                uint tagFmt = BinaryPrimitives.ReadUInt32LittleEndian
-                (new ReadOnlySpan<byte>(rawDat, rawOff, 4));
+                TagEnum tag = (TagEnum)(int)BinaryPrimitives.ReadUInt16LittleEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff, 2));
 
-                TagEnum tag = (TagEnum)(int)(tagFmt >> 16);
-                ushort format = (ushort)(tagFmt & 0x0000FFFF);
+                ushort format = BinaryPrimitives.ReadUInt16LittleEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 2, 2));
 
                 if (!BitesPerCompon.TryGetValue(format, out int byteNum))
                 {
@@ -378,20 +405,20 @@ public class SgmAPP1 : Segment
                     1 => rawDat[datOff],
                     2 => rawDat.Slice(datOff, datLen),
                     3 => BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
-                    4 => BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
-                    5 => new ulong[2]
+                    4 => BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                    5 => new uint[2]
                     {
-                        BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
-                        BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 8, 8)),
+                        BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                        BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 4, 4)), // 8
                     },
                     6 => (sbyte)rawDat[datOff],
                     7 => rawDat.Slice(datOff, datLen),
                     8 => BinaryPrimitives.ReadInt16LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
                     9 => BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
-                    10 => new long[2]
+                    10 => new int[2]
                     {
-                        BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
-                        BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 8, 8)),
+                        BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                        BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(rawDat, datOff + 4, 4)), // 8
                     },
                     11 => BinaryPrimitives.ReadSingleLittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)),
                     12 => BinaryPrimitives.ReadDoubleLittleEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
@@ -399,15 +426,30 @@ public class SgmAPP1 : Segment
                 };
 
                 // create IFD
+                entries.Add(new Entry(tag, format, compNum, value));
 
                 rawOff += entryLen;
             }
 
+            ifds.Add(new IFD(ifdOff, entries, nextOff));
+
             return nextOff;
         }
 
-        IFD(List<Entry> _entries, int _nextOff)
+        internal static int CreateBE(
+            int ifdOff,
+            ArraySegment<byte> data,
+            out List<IFD> ifds,
+            out Status status)
         {
+            ifds = [];
+            status = Status.OK;
+            return 0;
+        }
+
+        IFD(int _ifdOff, List<Entry> _entries, int _nextOff)
+        {
+            offset = _ifdOff;
             entries = _entries;
             nextOff = _nextOff;
         }
@@ -416,17 +458,67 @@ public class SgmAPP1 : Segment
             {1, 1}, {2, 1}, {3, 2}, {4, 4}, {5, 8}, {6, 1},
             {7, 1}, {8, 2}, {9, 4}, {10, 8}, {11, 4}, {12, 8}
         };
-        //static Dictionary<int, Type> ComponType = new() {
-        //    {1, typeof(byte)}, {2, typeof(string)}, {3, typeof(ushort)},
-        //    {4, typeof(ulong)}, {5, typeof(uint[])}, {6, typeof(sbyte)},
-        //    {7, typeof(byte[])}, {8, typeof(short)}, {9, typeof(long)},
-        //    {10, typeof(int[])}, {11, typeof(float)}, {12, typeof(double)}
-        //};
 
-        // object obj = new int[] { 1, 2, 3 };
-        // var something = Convert.ChangeType(obj, typeof(int[]));
+        // ResolutionUnitEnum
 
-        public enum TagEnum
+        public override string ToString()
+        {
+            var enmenm = new Dictionary<Enum, Type> {
+                { TagEnum.Orientation, typeof(OrientationEnum) },
+                { TagEnum.ResolutionUnit, typeof(ResolutionUnitEnum) },
+                { TagEnum.YCbCrPositioning, typeof(YCbCrPositioning) }, 
+            };
+
+            string entStr = "";
+            foreach (var ent in entries)
+            {
+                string valStr;
+                if (ent.format == 2 && ent.value is byte[] asciiBytes)
+
+                    valStr = asciiBytes.ToText();
+
+                else if (ent.format == 5 && ent.value is uint[] ratio)
+                {
+                    valStr = ratio[1] == 1 ? ratio[0].ToString() : $"{ratio[0]}/{ratio[1]}";
+
+                } else if (enmenm.TryGetValue(ent.tag, out Type? dstType))
+                {
+                    valStr = dstType == null ? ent.value.ToString()! :
+                        $"{Enum.ToObject(dstType, Convert.ToInt32(ent.value))}";
+                    
+                } else
+                    valStr = ent.value.ToString()!;
+                
+                entStr += $"      {ent.tag}: {valStr}\n";
+            }
+
+            return
+                $"""
+                {entStr}
+                      next offset: {nextOff}
+
+                """;
+        }
+
+        enum OrientationEnum {
+            UpperLeft = 1,
+            LowerRight = 3,
+            UpperRight = 6,
+            LowerLeft = 8,
+        }
+
+        enum ResolutionUnitEnum {
+            NoUnit = 1,
+            Inch = 2,
+            Centimeter = 3
+        }
+
+        enum YCbCrPositioning {
+            Center = 1,
+            Datum = 2,
+        }
+
+        internal enum TagEnum
         {
             // IFD0
             ImageDescription = 0x010e,
