@@ -267,7 +267,7 @@ public class SgmAPP1 : Segment
     }
 
     /// <summary>
-    /// Creates a list of IFDs and registers thumbnail data
+    /// Creates IFDs for main image, digicam & thumbnail
     /// </summary>
     /// <param name="_data">
     /// Starts at 49492a00 - internal IFD offsets origin
@@ -284,7 +284,7 @@ public class SgmAPP1 : Segment
         while (ifdOff > 0)
         {
             ifdOff = IFD.CreateLE(ifdOff, _data, ifds, (IFDType)ifdName, out int sOff, out status);
-            if(sOff != 0) subOff.Add(sOff);
+            if (sOff != 0) subOff.Add(sOff);
             ifdName += 2;
         }
 
@@ -496,29 +496,69 @@ public class SgmAPP1 : Segment
             var enmenm = new Dictionary<Enum, Type> {
                 { TagEnum.Orientation, typeof(OrientationEnum) },
                 { TagEnum.ResolutionUnit, typeof(ResolutionUnitEnum) },
-                { TagEnum.YCbCrPositioning, typeof(YCbCrPositioning) }, 
+                { TagEnum.YCbCrPositioning, typeof(YCbCrPositioningEnum) },
+                { TagEnum.ExposureProgram, typeof(ExposureProgramEnum) },
+                { TagEnum.MeteringMode, typeof(MeteringModeEnum) },
+                { TagEnum.LightSource, typeof(LightSourceEnum) },
+                { TagEnum.Flash, typeof(FlashEnum) },
             };
 
             string entStr = "";
             foreach (var ent in entries)
             {
                 string valStr;
-                if (ent.format == 2 && ent.value is byte[] asciiBytes)
+                if ((ent.format == 2 || ent.tag == TagEnum.UserComment) && ent.value is byte[] asciiBytes)
 
                     valStr = asciiBytes.ToText();
 
-                else if (ent.format == 5 && ent.value is uint[] ratio)
+                else if (ent.tag == TagEnum.ShutterSpeedValue && ent.value is int[] sratio)
+
+                    valStr = $"{1 / Math.Pow(2.0, (double)sratio[0] / sratio[1]):F4}";
+
+                else if ((ent.tag == TagEnum.ApertureValue || ent.tag == TagEnum.MaxApertureValue) && ent.value is int[] aratio)
+
+                    valStr = $"{Math.Pow(Math.Sqrt(2), (double)aratio[0] / aratio[1]):F4}";
+
+                else if ((ent.tag == TagEnum.ExifVersion || ent.tag == TagEnum.FlashPixVersion) && ent.value is byte[] bytes)
                 {
-                    valStr = ratio[1] == 1 ? ratio[0].ToString() : $"{ratio[0]}/{ratio[1]}";
+                    var chars = bytes.Select(b => (char)b).ToArray();
+                    valStr = $"{chars[0]}{chars[1]}.{chars[2]}{chars[3]}";
+
+                } else if (ent.tag == TagEnum.MakerNote && ent.value is byte[] mbytes)
+
+                    valStr = mbytes.SneakPeek();
+
+                else if (ent.format == 5 && ent.value is uint[] uratio)
+                {
+                    uint ur0 = uratio[0];
+                    uint ur1 = uratio[1];
+                    valStr =
+                        ur1 switch
+                        {
+                            1 => ur0.ToString(),
+                            10 or 100 or 1000 => $"{(float)ur0 / ur1}",
+                            _ => $"{ur0}/{ur1}"
+                        };
+                } else if (ent.format == 10 && ent.value is int[] ratio)
+                {
+                    int r0 = ratio[0];
+                    int r1 = ratio[1];
+                    valStr =
+                        r1 switch
+                        {
+                            1 => r0.ToString(),
+                            10 or 100 or 1000 => $"{(float)r0 / r1}",
+                            _ => $"{r0}/{r1}"
+                        };
 
                 } else if (enmenm.TryGetValue(ent.tag, out Type? dstType))
-                {
+
                     valStr = dstType == null ? ent.value.ToString()! :
                         $"{Enum.ToObject(dstType, Convert.ToInt32(ent.value))}";
-                    
-                } else
+
+                else
                     valStr = ent.value.ToString()!;
-                
+
                 entStr += $"         {ent.tag}: {valStr}\n";
             }
 
@@ -530,20 +570,59 @@ public class SgmAPP1 : Segment
                 """;
         }
 
-        enum OrientationEnum {
+        enum FlashEnum
+        {
+            Off = 0,
+            On = 1,
+        }
+
+        enum LightSourceEnum
+        {
+            Auto = 0,
+            DayLight = 1,
+            Fluorescent = 2,
+            Tungsten = 3,
+            Flash = 10,
+        }
+
+        enum MeteringModeEnum
+        {
+            Average = 1,
+            CenterWeighted = 2,
+            Spot = 3,
+            MultiSpot = 4,
+            MultiSegment = 5,
+        }
+
+        enum ExposureProgramEnum
+        {
+            ManualControl = 1,
+            Normal = 2,
+            AperturePriority = 3,
+            ShutterPriority = 4,
+            Creative = 5,
+            Action = 6,
+            PortraitMode = 7,
+            LandscapeMode = 8,
+        }
+
+        enum OrientationEnum
+        {
             UpperLeft = 1,
             LowerRight = 3,
             UpperRight = 6,
             LowerLeft = 8,
         }
 
-        enum ResolutionUnitEnum {
+        enum ResolutionUnitEnum
+        {
             NoUnit = 1,
             Inch = 2,
             Centimeter = 3
         }
 
-        enum YCbCrPositioning {
+        enum YCbCrPositioningEnum
+        {
             Center = 1,
             Datum = 2,
         }
@@ -655,6 +734,12 @@ public class SgmAPP1 : Segment
             SubjectLocation2 = 0xa214,
             ExposureIndex2 = 0xa215,
             CFAPattern2 = 0xa302,
+            // Undocumented
+            ExposureMode = 0xa402,
+            WhiteBalance = 0xa403,
+            FocalLengthIn35mm = 0xa405,
+            SceneCaptureType = 0xa406,
+            ImageUniqueId = 0xa420,
         }
     }
 }
