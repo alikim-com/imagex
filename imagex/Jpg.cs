@@ -280,10 +280,9 @@ public class SgmAPP1 : Segment
         int ifdName = 0;
         List<int> subOff = []; // SubIFDs
 
-        Status status = Status.None;
         while (ifdOff > 0)
         {
-            ifdOff = IFD.CreateLE(ifdOff, _data, ifds, (IFDType)ifdName, out int sOff, out status);
+            ifdOff = IFD.CreateLE(ifdOff, _data, ifds, (IFDType)ifdName, out int sOff);
             if (sOff != 0) subOff.Add(sOff);
             ifdName += 2;
         }
@@ -291,27 +290,32 @@ public class SgmAPP1 : Segment
         ifdName = 1;
         foreach (var sOff in subOff)
         {
-            IFD.CreateLE(sOff, _data, ifds, (IFDType)ifdName, out int _, out status);
+            IFD.CreateLE(sOff, _data, ifds, (IFDType)ifdName, out int _);
             ifdName += 2;
         }
-
-        if (status != Status.OK) { }
-
-
     }
 
     static void ParseBE(ArraySegment<byte> _data, List<IFD> ifds)
     {
-        ifds = [];
-
         var ifdOff = BinaryPrimitives.ReadInt32BigEndian
             (new ReadOnlySpan<byte>(_data.Array, _data.Offset + 4, 4));
 
-        Status status = Status.None;
-        while (ifdOff > 0)
-            ifdOff = IFD.CreateBE(ifdOff, _data, out ifds, out status);
+        int ifdName = 0;
+        List<int> subOff = []; // SubIFDs
 
-        if (status != Status.OK) { }
+        while (ifdOff > 0)
+        {
+            ifdOff = IFD.CreateBE(ifdOff, _data, ifds, (IFDType)ifdName, out int sOff);
+            if (sOff != 0) subOff.Add(sOff);
+            ifdName += 2;
+        }
+
+        ifdName = 1;
+        foreach (var sOff in subOff)
+        {
+            IFD.CreateBE(sOff, _data, ifds, (IFDType)ifdName, out int _);
+            ifdName += 2;
+        }
     }
 
     protected override string ParsedData()
@@ -327,7 +331,7 @@ public class SgmAPP1 : Segment
         $"""
               id: {Id}
               byte order: {byteOrd}
-        {ifdStr}
+        {ifdStr.TrimEnd('\n', '\r')}
               status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
@@ -338,6 +342,14 @@ public class SgmAPP1 : Segment
     /// </summary>
     class IFD
     {
+        enum Status
+        {
+            None = 0,
+            OK = 1,
+            IFDOutOfBounds = 2,
+            IFDFormatError = 4,
+        }
+
         internal struct Entry
         {
             internal TagEnum tag;
@@ -358,17 +370,17 @@ public class SgmAPP1 : Segment
         readonly int offset;
         readonly List<Entry> entries;
         readonly int nextOff;
+        readonly Status status;
 
         internal static int CreateLE(
             int ifdOff,
             ArraySegment<byte> data,
             List<IFD> ifds,
             IFDType ifdName,
-            out int subOff,
-            out Status status)
+            out int subOff)
         {
             subOff = 0;
-            status = Status.OK;
+            Status _status = Status.OK;
 
             int _rawOff = data.Offset + ifdOff; // IFD start = 0x4949.. + ifdOff
             int rawOff = _rawOff;
@@ -377,7 +389,7 @@ public class SgmAPP1 : Segment
 
             if (rawOff > rawLen - 2)
             {
-                status = Status.IFDOutOfBounds;
+                _status = Status.IFDOutOfBounds;
                 return 0;
             }
 
@@ -392,7 +404,7 @@ public class SgmAPP1 : Segment
 
             if (rawOff > rawLen - 4)
             {
-                status = Status.IFDOutOfBounds;
+                _status = Status.IFDOutOfBounds;
                 return 0;
             }
 
@@ -415,7 +427,7 @@ public class SgmAPP1 : Segment
 
                 if (!BitesPerCompon.TryGetValue(format, out int byteNum))
                 {
-                    status = Status.IFDFormatError;
+                    _status = Status.IFDFormatError;
                     return 0;
                 }
 
@@ -460,7 +472,7 @@ public class SgmAPP1 : Segment
                 rawOff += entryLen;
             }
 
-            ifds.Add(new IFD(ifdOff, entries, nextOff, ifdName));
+            ifds.Add(new IFD(ifdOff, entries, nextOff, ifdName, _status));
 
             return nextOff;
         }
@@ -468,20 +480,115 @@ public class SgmAPP1 : Segment
         internal static int CreateBE(
             int ifdOff,
             ArraySegment<byte> data,
-            out List<IFD> ifds,
-            out Status status)
+            List<IFD> ifds,
+            IFDType ifdName,
+            out int subOff)
         {
-            ifds = [];
-            status = Status.OK;
-            return 0;
+            subOff = 0;
+            Status _status = Status.OK;
+
+            int _rawOff = data.Offset + ifdOff; // IFD start = 0x4949.. + ifdOff
+            int rawOff = _rawOff;
+            var rawDat = data.Array;
+            var rawLen = rawDat!.Length;
+
+            if (rawOff > rawLen - 2)
+            {
+                _status = Status.IFDOutOfBounds;
+                return 0;
+            }
+
+            var entryNum = BinaryPrimitives.ReadUInt16BigEndian
+            (new ReadOnlySpan<byte>(rawDat, rawOff, 2));
+
+            int entryLen = 12;
+
+            var totLen = entryLen * entryNum;
+
+            rawOff += 2 + totLen;
+
+            if (rawOff > rawLen - 4)
+            {
+                _status = Status.IFDOutOfBounds;
+                return 0;
+            }
+
+            int nextOff = BinaryPrimitives.ReadInt32BigEndian
+            (new ReadOnlySpan<byte>(rawDat, rawOff, 4));
+
+            // block integrity OK
+            // create individual entries
+
+            List<Entry> entries = [];
+            rawOff = _rawOff + 2;
+
+            for (int i = 0; i < entryNum; i++)
+            {
+                TagEnum tag = (TagEnum)(int)BinaryPrimitives.ReadUInt16BigEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff, 2));
+
+                ushort format = BinaryPrimitives.ReadUInt16BigEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 2, 2));
+
+                if (!BitesPerCompon.TryGetValue(format, out int byteNum))
+                {
+                    _status = Status.IFDFormatError;
+                    return 0;
+                }
+
+                uint compNum = BinaryPrimitives.ReadUInt32BigEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 4, 4));
+
+                int datLen = (int)(compNum * byteNum);
+                int datOff = datLen <= 4 ? rawOff + 8 : BinaryPrimitives.ReadInt32BigEndian
+                (new ReadOnlySpan<byte>(rawDat, rawOff + 8, 4)) + data.Offset;
+                object value = format switch
+                {
+                    1 => rawDat[datOff],
+                    2 => rawDat.Slice(datOff, datLen),
+                    3 => BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
+                    4 => BinaryPrimitives.ReadUInt32BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                    5 => new uint[2]
+                    {
+                        BinaryPrimitives.ReadUInt32BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                        BinaryPrimitives.ReadUInt32BigEndian(new ReadOnlySpan<byte>(rawDat, datOff + 4, 4)), // 8
+                    },
+                    6 => (sbyte)rawDat[datOff],
+                    7 => rawDat.Slice(datOff, datLen),
+                    8 => BinaryPrimitives.ReadInt16BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 2)),
+                    9 => BinaryPrimitives.ReadInt64BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                    10 => new int[2]
+                    {
+                        BinaryPrimitives.ReadInt32BigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)), // 8
+                        BinaryPrimitives.ReadInt32BigEndian(new ReadOnlySpan<byte>(rawDat, datOff + 4, 4)), // 8
+                    },
+                    11 => BinaryPrimitives.ReadSingleBigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 4)),
+                    12 => BinaryPrimitives.ReadDoubleBigEndian(new ReadOnlySpan<byte>(rawDat, datOff, 8)),
+                    _ => 0,
+                };
+
+                // subIFD
+                if (tag == TagEnum.ExifOffset && value is uint _subOff)
+                    subOff = (int)_subOff;
+
+                // create IFD
+                entries.Add(new Entry(tag, format, compNum, value));
+
+                rawOff += entryLen;
+            }
+
+            ifds.Add(new IFD(ifdOff, entries, nextOff, ifdName, _status));
+
+            return nextOff;
         }
 
-        IFD(int _ifdOff, List<Entry> _entries, int _nextOff, IFDType _name)
+        IFD(int _ifdOff, List<Entry> _entries, int _nextOff, IFDType _name, Status _status)
         {
             offset = _ifdOff;
             entries = _entries;
             nextOff = _nextOff;
             name = _name;
+            status = _status;
         }
 
         static readonly Dictionary<int, int> BitesPerCompon = new() {
@@ -500,6 +607,7 @@ public class SgmAPP1 : Segment
                 { TagEnum.ExposureProgram, typeof(ExposureProgramEnum) },
                 { TagEnum.MeteringMode, typeof(MeteringModeEnum) },
                 { TagEnum.LightSource, typeof(LightSourceEnum) },
+                { TagEnum.Compression, typeof(CompressionEnum) },
                 { TagEnum.Flash, typeof(FlashEnum) },
             };
 
@@ -509,7 +617,7 @@ public class SgmAPP1 : Segment
                 string valStr;
                 if ((ent.format == 2 || ent.tag == TagEnum.UserComment) && ent.value is byte[] asciiBytes)
 
-                    valStr = asciiBytes.ToText();
+                    valStr = asciiBytes.ToText().TrimEnd('\n', '\r');
 
                 else if (ent.tag == TagEnum.ShutterSpeedValue && ent.value is int[] sratio)
 
@@ -565,9 +673,15 @@ public class SgmAPP1 : Segment
             return
                 $"""
                       {name}
-                {entStr}         next offset: {nextOff}
+                {entStr}         next IFD: 0x{nextOff:X}
 
                 """;
+        }
+
+        enum CompressionEnum
+        {
+            Uncompressed = 1,
+            JPEG = 6,
         }
 
         enum FlashEnum
@@ -784,8 +898,6 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         None = 0,
         OK = 1,
         ThumbSizeMismatch = 2,
-        IFDOutOfBounds = 4,
-        IFDFormatError = 8,
     }
 
     protected int status;
