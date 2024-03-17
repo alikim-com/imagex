@@ -2,7 +2,9 @@
 // table tag info extractor ./tagExtractor.js
 
 using System.Buffers.Binary;
+using System.Diagnostics.Metrics;
 using static imagex.Segment;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace imagex;
 
@@ -48,7 +50,7 @@ public class Jpg : Image
         {
             if (data[i] != 0xFF) continue;
 
-            int vmrk = 0xff00 + data[i + 1];
+            int vmrk = 0xFF00 + data[i + 1];
 
             foreach (int mrk in mArr)
             {
@@ -70,10 +72,9 @@ public class Jpg : Image
                     break;
                 }
 
-                int rawLen = BinaryPrimitives.ReadInt32BigEndian
-                (new ReadOnlySpan<byte>(data, i, 4)) & 0xFFFF;
+                int rawLen = BinaryPrimitives.ReadInt16BigEndian
+                (new ReadOnlySpan<byte>(data, i + 2, 2)); // rawLen includes 2 len bytes
 
-                // starts after len-bytes
                 markers.Add(new Marker { type = smrk, pos = i + 2, len = rawLen - 2 });
 
                 i += rawLen; // FromFileRobust w/o this line
@@ -109,8 +110,80 @@ public class Jpg : Image
 /// <summary>
 /// Start Of Frame (baseline DCT)
 /// </summary>
-public class SgmSOF0(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+public class SgmSOF0 : Segment
 {
+    // len (Lf) 00 11
+
+    readonly byte samPrec; // P
+    readonly ushort numLines; // Y
+    readonly ushort samPerLine; // X
+    readonly byte numComp; // Nf
+
+    readonly byte[] compId; // Ci
+    readonly byte[] samFactHor; // Hi
+    readonly byte[] samFactVer; // Vi
+    readonly byte[] quanTableInd; // Tqi
+
+    /// <summary>
+    /// Baseline JPEG - STORE FLAG IN JPEG CLASS
+    /// </summary>
+    public SgmSOF0(
+        Jpg.Marker _marker,
+        ArraySegment<byte> _data) : base(_marker, _data)
+    {
+        status = (int)Status.OK;
+
+        samPrec = _data[0];
+
+        var rawOff = _data.Offset;
+        var rawDat = _data.Array;
+
+        numLines = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + 1, 2));
+        samPerLine = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + 3, 2));
+        numComp = _data[5];
+
+        compId = new byte[numComp];
+        samFactHor = new byte[numComp];
+        samFactVer = new byte[numComp];
+        quanTableInd = new byte[numComp];
+
+        int ind = 0;
+        for (int off = 0; off < numComp * 3; off+=3)
+        {
+            compId[ind] = _data[6 + off];
+            byte samFact = _data[7 + off];
+            samFactHor[ind] = (byte)(samFact >> 4);
+            samFactVer[ind] = (byte)(samFact & 0b00001111);
+            quanTableInd[ind] = _data[8 + off];
+            ind++;
+        }
+
+    }
+
+    protected override string ParsedData()
+    {
+        string compInfo = "";
+        for(int i = 0; i < numComp; i++)
+            compInfo += 
+            $"""
+                   [{compId[i]}]
+                   s/factor hor: {samFactHor[i]}
+                   s/factor ver: {samFactVer[i]}
+                   quant table [{quanTableInd[i]}]
+
+             """;
+
+        return
+        $"""
+              sample precision: {samPrec}
+              max lines: {numLines}
+              max samples per line: {samPerLine}
+              components: {numComp}
+        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+        """;
+    }
+
 }
 /// <summary>
 /// Start Of Frame (progressive DCT)
