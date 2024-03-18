@@ -148,7 +148,7 @@ public class SgmSOF0 : Segment
         quanTableInd = new byte[numComp];
 
         int ind = 0;
-        for (int off = 0; off < numComp * 3; off+=3)
+        for (int off = 0; off < numComp * 3; off += 3)
         {
             compId[ind] = _data[6 + off];
             byte samFact = _data[7 + off];
@@ -163,8 +163,8 @@ public class SgmSOF0 : Segment
     protected override string ParsedData()
     {
         string compInfo = "";
-        for(int i = 0; i < numComp; i++)
-            compInfo += 
+        for (int i = 0; i < numComp; i++)
+            compInfo +=
             $"""
                    [{compId[i]}]
                    s/factor hor: {samFactHor[i]}
@@ -198,10 +198,91 @@ public class SgmDHT(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 {
 }
 /// <summary>
-/// Define Quantization Table(s)
+/// Define Quantization Table
 /// </summary>
-public class SgmDQT(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+public class SgmDQT : Segment
 {
+    /* 
+     QTable[i, j] = ceil(Baseline_Table[i, j]* Scale_Factor(Q) / 50)
+     Q e [1,100]
+     Scale_Factor(Q) = 5000 / Q
+     Scale_Factor(Q) = 2 ^ ((100 - Q) / 50)
+       
+     PS Q e [1,12]
+     Scale_Factor(Q) = 200 - 2*Q, for Q >= 8
+                     = 5000 / Q, for Q < 8
+
+    */
+
+    readonly byte qtPrec; // Pq
+    readonly byte quanTableInd; // Tq
+    readonly int[] QZigZag;
+    readonly int[,] QTable;
+
+    public SgmDTQ(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
+    {
+        status = (int)Status.OK;
+
+        int pt = _data[0];
+
+        qtPrec = (byte)(pt >> 4);
+        quanTableInd = (byte)(pt & 0b00001111);
+
+        QZigZag = new int[64];
+        QTable = new int[8, 8];
+
+        if (qtPrec == 0)
+            for (int i = 0; i < 64; i++) QZigZag[i] = _data[i + 1];
+
+        else if (qtPrec == 1)
+        {
+            var rawOff = _data.Offset + 1;
+            var rawDat = _data.Array;
+            int cnt = 0;
+            for (int i = 0; i < 128; i += 2)
+                QZigZag[cnt++] = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
+
+        } else
+            status = (int)Status.QTableBadFormat;
+
+
+    }
+
+    protected override string ParsedData()
+    {
+        string compInfo = "";
+        return
+        $"""
+              sample precision: {samPrec}
+              max lines: {numLines}
+              max samples per line: {samPerLine}
+              components: {numComp}
+        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+        """;
+
+    }
+
+    static readonly int[,] LuminQuanBaseTable = new int[8, 8] {
+        { 16, 11, 10, 16, 24, 40, 51, 61 },
+        { 12, 12, 14, 19, 26, 58, 60, 55 },
+        { 14, 13, 16, 24, 40, 57, 69, 56 },
+        { 14, 17, 22, 29, 51, 87, 80, 62 },
+        { 18, 22, 37, 56, 68, 109, 103, 77 },
+        { 24, 35, 55, 64, 81, 104, 113, 92 },
+        { 49, 64, 78, 87, 103, 121, 120, 101 },
+        { 72, 92, 95, 98, 112, 100, 103, 99 }};
+
+    static readonly int[,] ChrominQuantBaseTable = new int[8, 8] {
+        { 17, 18, 24, 47, 99, 99, 99, 99 },
+        { 18, 21, 26, 66, 99, 99, 99, 99 },
+        { 24, 26, 56, 99, 99, 99, 99, 99 },
+        { 47, 66, 99, 99, 99, 99, 99, 99 },
+        { 99, 99, 99, 99, 99, 99, 99, 99 },
+        { 99, 99, 99, 99, 99, 99, 99, 99 },
+        { 99, 99, 99, 99, 99, 99, 99, 99 },
+        { 99, 99, 99, 99, 99, 99, 99, 99 }};
+
+
 }
 /// <summary>
 /// Define Restart Interval
@@ -971,6 +1052,7 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         None = 0,
         OK = 1,
         ThumbSizeMismatch = 2,
+        QTableBadFormat = 4,
     }
 
     protected int status;
