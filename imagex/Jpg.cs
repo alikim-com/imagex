@@ -1,8 +1,10 @@
 ﻿// https://www.media.mit.edu/pia/Research/deepview/exif.html
 // table tag info extractor ./tagExtractor.js
 
+using System;
 using System.Buffers.Binary;
 using System.Diagnostics.Metrics;
+using System.Drawing;
 using static imagex.Segment;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
@@ -214,12 +216,15 @@ public class SgmDQT : Segment
 
     */
 
+    static int[,] rowCol = ZigZagToRowCol();
+
     readonly byte qtPrec; // Pq
     readonly byte quanTableInd; // Tq
-    readonly int[] QZigZag;
-    readonly int[,] QTable;
+    readonly ushort[] QZigZag;
+    readonly double[] recQZigZag; // for milt DCT
+    readonly ushort[,] QTable; // for printing
 
-    public SgmDTQ(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
+    public SgmDQT(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
         status = (int)Status.OK;
 
@@ -228,8 +233,8 @@ public class SgmDQT : Segment
         qtPrec = (byte)(pt >> 4);
         quanTableInd = (byte)(pt & 0b00001111);
 
-        QZigZag = new int[64];
-        QTable = new int[8, 8];
+        QZigZag = new ushort[64];
+        recQZigZag = new double[64];
 
         if (qtPrec == 0)
             for (int i = 0; i < 64; i++) QZigZag[i] = _data[i + 1];
@@ -240,24 +245,103 @@ public class SgmDQT : Segment
             var rawDat = _data.Array;
             int cnt = 0;
             for (int i = 0; i < 128; i += 2)
-                QZigZag[cnt++] = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
+            {
+                var elem = QZigZag[cnt++] = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
+                recQZigZag[cnt++] = 1.0 / elem;
+            }
 
         } else
             status = (int)Status.QTableBadFormat;
 
+        QTable = new ushort[8, 8];
+        for (int i = 0; i < 64; i++)
+        {
+            int row = rowCol[i, 0];
+            int col = rowCol[i, 1];
+            QTable[row, col] = QZigZag[i];
+        }
+    }
 
+    static int[,] ZigZagToRowCol(int size = 8)
+    {
+        /*
+
+         0  1  5  6 14 15 27 28 
+         2  4  7 13 16 26 29 42 
+         3  8 12 17 25 30 41 43
+         9 11 18 24 31 40 44 53
+        10 19 23 32 39 45 52 54
+        20 22 33 38 46 51 55 60
+        21 34 37 47 50 56 59 61
+        35 36 48 49 57 58 62 63
+
+        */
+
+        // 1, 2, .. 8,   7, 6 .. 1 = 15 diag strides
+        int snum = size * 2 - 1;
+        int sm1 = size - 1;
+        int[,] si = new int[snum, 2]; // stride intervals
+        int cnt = 0;
+        int run = 0;
+        for (int i = 1; i <= size; i++)
+        { // stride length
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+        for (int i = sm1; i > 0; i--)
+        {
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+
+        int szSq = size * size;
+
+        int[,] rowCol = new int[szSq, 2];
+
+        for (int i = 0; i < szSq; i++)
+        {
+            int sind = 0;
+            int fwd = 0;
+            int bwd = 0;
+            for (int s = 0; s < snum; s++)
+            {
+                fwd = i - si[s, 0];
+                bwd = i - si[s, 1];
+                if (bwd <= 0 && fwd >= 0)
+                {
+                    sind = s;
+                    break;
+                }
+            }
+            int off = sind % 2 != 0 ? fwd : -bwd;
+            int col = Math.Min(sm1, sind) - off;
+            int row = Math.Max(0, sind - sm1) + off;
+            rowCol[i, 0] = row;
+            rowCol[i, 1] = col;
+        }
+
+        return rowCol;
     }
 
     protected override string ParsedData()
     {
-        string compInfo = "";
+        string qtInfo = "";
+        for (int i = 0; i < 8; i++)
+        {
+            qtInfo += "      ";
+            for (int j = 0; j < 8; j++) qtInfo += QTable[i, j].ToString().PadLeft(4, ' ');
+            qtInfo += "\n";
+        }
         return
         $"""
-              sample precision: {samPrec}
-              max lines: {numLines}
-              max samples per line: {samPerLine}
-              components: {numComp}
-        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+              table precision: {(qtPrec + 1) * 8} bit
+              table id [{quanTableInd}]
+        {qtInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
         """;
 
     }
