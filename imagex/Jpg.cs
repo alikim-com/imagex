@@ -95,6 +95,11 @@ public class Jpg : Image
 
     }
 
+    public List<Segment> GetSegments(SgmType stype) {
+        Type cType = classMap[stype];
+        return segments.Where(s => s.GetType() == cType).ToList();
+    }
+
     public override string ToString()
     {
         var raw = data.SneakPeek();
@@ -219,7 +224,6 @@ public class SgmDQT : Segment
     readonly List<byte> qtPrec; // Pq
     readonly List<byte> quanTableInd; // Tq
     readonly List<ushort[]> QZigZag;
-    readonly List<double[]> recQZigZag; // for milt DCT
     readonly List<ushort[,]> QTable; // for printing
 
     public SgmDQT(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
@@ -230,17 +234,14 @@ public class SgmDQT : Segment
         qtPrec = [];
         quanTableInd = [];
         QZigZag = [];
-        recQZigZag = [];
         QTable = [];
 
         while (qtOff < _marker.len)
         {
             QZigZag.Add(new ushort[64]);
-            recQZigZag.Add(new double[64]);
             QTable.Add(new ushort[8,8]);
 
             var _QZigZag = QZigZag[^1];
-            var _recQZigZag = recQZigZag[^1];
             var _QTable = QTable[^1];
 
             int pt = _data[qtOff];
@@ -257,11 +258,8 @@ public class SgmDQT : Segment
                 var rawDat = _data.Array;
                 int cnt = 0;
                 for (int i = 0; i < 128; i += 2)
-                {
-                    var elem = _QZigZag[cnt++] =
+                    _QZigZag[cnt++] =
                         BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
-                    _recQZigZag[cnt++] = 1.0 / elem;
-                }
 
             } else {
                 status = (int)Status.QTableBadFormat;
@@ -277,6 +275,14 @@ public class SgmDQT : Segment
 
             qtOff += _qtPrec == 0 ? 65 : 129;
         }
+    }
+
+    public bool GetQTableByIndex(byte ind, out ushort[,]? qTable)
+    {
+        int k = quanTableInd.IndexOf(ind);
+        bool OK = k != -1;
+        qTable = OK ? QTable[k] : null;
+        return OK;
     }
 
     static int[,] ZigZagToRowCol(int size = 8)
@@ -1143,7 +1149,7 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         EOI = 0xFFD9
     }
 
-    static readonly Dictionary<SgmType, Type> classMap = new() {
+    public static readonly Dictionary<SgmType, Type> classMap = new() {
         { SgmType.SOF0, typeof(SgmSOF0)},
         { SgmType.SOF2, typeof(SgmSOF2)},
         { SgmType.DHT, typeof(SgmDHT)},

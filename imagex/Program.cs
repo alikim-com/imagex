@@ -2,7 +2,9 @@
 using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.IO.Hashing;
+using System.Xml.Linq;
 
 namespace imagex;
 
@@ -12,15 +14,75 @@ internal class Program
     {
         //TestCRC32();
         //TestLoadPng();
-        TestLoadJpg();
+        //TestLoadJpg();
+        StudyQTables();
+    }
+
+    static void StudyQTables()
+    {
+        var path = "../../../testImages";
+
+        Console.WriteLine("Please enter file name to decode:");
+        string fname = Console.ReadLine() ?? "";
+
+        int row = 4;
+        int col = 6;
+        string plotStr = "plot: ";
+        if (fname == "")
+            for (int i = 0; i <= 100; i += 5)
+            {
+                fname = $"q1_{i}.jpg";
+                Console.WriteLine("decoding '" + fname + "'..");
+                var images = Jpg.FromFile(path, fname);
+                var lst = images[0].GetSegments(Segment.SgmType.DQT);
+                if (lst[0] is SgmDQT dqt)
+                    if (dqt.GetQTableByIndex(0, out ushort[,]? qTable) && qTable != null)
+                    {
+                        plotStr += $"({i},{qTable[row, col]/1.03}),";
+                        string qtInfo = "";
+                        for (int k = 0; k < 8; k++)
+                        {
+                            qtInfo += "     ";
+                            for (int j = 0; j < 8; j++) qtInfo += qTable[k, j].ToString().PadLeft(4, ' ');
+                            qtInfo += "\n";
+                        }
+                        Console.WriteLine(qtInfo);
+                    }
+            }
+        Console.WriteLine(plotStr);
+    }
+
+    static void PrintImageInfo()
+    {
+        var path = "../../../testImages";
+
+        Console.WriteLine("Please enter file name to decode:");
+        string fname = Console.ReadLine() ?? "";
+        if (fname == "") fname = "42.jpg";// "baloon.jpg";
+
+        var images = Jpg.FromFile(path, fname);
+        foreach (var jpg in images) Console.WriteLine(jpg);
     }
 
     static void TestCRC32()
     {
         byte[] data = [
             // 0b00110100, 0b11101100
-            0x89, 0x50, 0x4e, 0x48, 0x0d, 0x63, 0xf8, 0x90,
-            0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0x00
+            0x89,
+            0x50,
+            0x4e,
+            0x48,
+            0x0d,
+            0x63,
+            0xf8,
+            0x90,
+            0x54,
+            0x08,
+            0xd7,
+            0x63,
+            0xf8,
+            0xcf,
+            0x00
 
             //0xff
             //0x01, 0x02, 0x03, 0x04
@@ -75,17 +137,7 @@ internal class Program
         string fname = Console.ReadLine() ?? "";
         if (fname == "") fname = "42.jpg";// "baloon.jpg";
 
-        Console.WriteLine("decoding '" + fname + "'..");
-
         var images = Jpg.FromFile(path, fname);
-        foreach(var jpg in images) Console.WriteLine(jpg);
-                
-        //var xdat = Png.ToXpng(png);
-        //xdat.ToFile(path, fname);
-
-        //Console.WriteLine("translating to rgba..");
-        //var rgbaDat = xdat.ToRgba();
-        //rgbaDat.ToFile(path, fname);
     }
 
     static void TestLoadPng()
@@ -94,11 +146,11 @@ internal class Program
 
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
-        if(fname == "") fname = "rgb_3x3.png";
+        if (fname == "") fname = "rgb_3x3.png";
 
         var png = Png.FromFile(path, fname);
         Console.WriteLine(png);
-        
+
         Console.WriteLine("decoding '" + fname + "'..");
         var xdat = Png.ToXpng(png);
         xdat.ToFile(path, fname);
