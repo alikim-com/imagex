@@ -114,8 +114,6 @@ public class Jpg : Image
 /// </summary>
 public class SgmSOF0 : Segment
 {
-    // len (Lf) 00 11
-
     readonly byte samPrec; // P
     readonly ushort numLines; // Y
     readonly ushort samPerLine; // X
@@ -218,47 +216,66 @@ public class SgmDQT : Segment
 
     static int[,] rowCol = ZigZagToRowCol();
 
-    readonly byte qtPrec; // Pq
-    readonly byte quanTableInd; // Tq
-    readonly ushort[] QZigZag;
-    readonly double[] recQZigZag; // for milt DCT
-    readonly ushort[,] QTable; // for printing
+    readonly List<byte> qtPrec; // Pq
+    readonly List<byte> quanTableInd; // Tq
+    readonly List<ushort[]> QZigZag;
+    readonly List<double[]> recQZigZag; // for milt DCT
+    readonly List<ushort[,]> QTable; // for printing
 
     public SgmDQT(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
         status = (int)Status.OK;
 
-        int pt = _data[0];
+        int qtOff = 0;
+        qtPrec = [];
+        quanTableInd = [];
+        QZigZag = [];
+        recQZigZag = [];
+        QTable = [];
 
-        qtPrec = (byte)(pt >> 4);
-        quanTableInd = (byte)(pt & 0b00001111);
-
-        QZigZag = new ushort[64];
-        recQZigZag = new double[64];
-
-        if (qtPrec == 0)
-            for (int i = 0; i < 64; i++) QZigZag[i] = _data[i + 1];
-
-        else if (qtPrec == 1)
+        while (qtOff < _marker.len)
         {
-            var rawOff = _data.Offset + 1;
-            var rawDat = _data.Array;
-            int cnt = 0;
-            for (int i = 0; i < 128; i += 2)
+            QZigZag.Add(new ushort[64]);
+            recQZigZag.Add(new double[64]);
+            QTable.Add(new ushort[8,8]);
+
+            var _QZigZag = QZigZag[^1];
+            var _recQZigZag = recQZigZag[^1];
+            var _QTable = QTable[^1];
+
+            int pt = _data[qtOff];
+            var _qtPrec = (byte)(pt >> 4);
+            qtPrec.Add(_qtPrec);
+            quanTableInd.Add((byte)(pt & 0b00001111));
+
+            if (_qtPrec == 0)
+                for (int i = 0; i < 64; i++) _QZigZag[i] = _data[qtOff + i + 1];
+
+            else if (_qtPrec == 1)
             {
-                var elem = QZigZag[cnt++] = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
-                recQZigZag[cnt++] = 1.0 / elem;
+                var rawOff = qtOff + _data.Offset + 1;
+                var rawDat = _data.Array;
+                int cnt = 0;
+                for (int i = 0; i < 128; i += 2)
+                {
+                    var elem = _QZigZag[cnt++] =
+                        BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
+                    _recQZigZag[cnt++] = 1.0 / elem;
+                }
+
+            } else {
+                status = (int)Status.QTableBadFormat;
+                return;
             }
 
-        } else
-            status = (int)Status.QTableBadFormat;
+            for (int i = 0; i < 64; i++)
+            {
+                int row = rowCol[i, 0];
+                int col = rowCol[i, 1];
+                _QTable[row, col] = _QZigZag[i];
+            }
 
-        QTable = new ushort[8, 8];
-        for (int i = 0; i < 64; i++)
-        {
-            int row = rowCol[i, 0];
-            int col = rowCol[i, 1];
-            QTable[row, col] = QZigZag[i];
+            qtOff += _qtPrec == 0 ? 65 : 129;
         }
     }
 
@@ -329,21 +346,28 @@ public class SgmDQT : Segment
 
     protected override string ParsedData()
     {
-        string qtInfo = "";
-        for (int i = 0; i < 8; i++)
+        string outp = "";
+
+        for (int i = 0; i < QTable.Count; i++)
         {
-            qtInfo += "      ";
-            for (int j = 0; j < 8; j++) qtInfo += QTable[i, j].ToString().PadLeft(4, ' ');
-            qtInfo += "\n";
+            var _QTable = QTable[i];
+            string qtInfo = "";
+            for (int k = 0; k < 8; k++)
+            {
+                qtInfo += "     ";
+                for (int j = 0; j < 8; j++) qtInfo += _QTable[k, j].ToString().PadLeft(4, ' ');
+                qtInfo += "\n";
+            }
+            outp +=
+            $"""
+                  table precision: {(qtPrec[i] + 1) * 8} bit
+                  table id [{quanTableInd[i]}]
+            {qtInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+            """;
         }
-        return
-        $"""
-              table precision: {(qtPrec + 1) * 8} bit
-              table id [{quanTableInd}]
-        {qtInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
-        """;
-
+        return outp;
     }
 
     static readonly int[,] LuminQuanBaseTable = new int[8, 8] {
