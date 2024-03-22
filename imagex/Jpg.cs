@@ -1,12 +1,8 @@
 ﻿// https://www.media.mit.edu/pia/Research/deepview/exif.html
 // table tag info extractor ./tagExtractor.js
 
-using System;
 using System.Buffers.Binary;
-using System.Diagnostics.Metrics;
-using System.Drawing;
 using static imagex.Segment;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace imagex;
 
@@ -95,7 +91,8 @@ public class Jpg : Image
 
     }
 
-    public List<Segment> GetSegments(SgmType stype) {
+    public List<Segment> GetSegments(SgmType stype)
+    {
         Type cType = classMap[stype];
         return segments.Where(s => s.GetType() == cType).ToList();
     }
@@ -199,8 +196,107 @@ public class SgmSOF2(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_ma
 /// <summary>
 /// Define Huffman Table(s)
 /// </summary>
-public class SgmDHT(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+public class SgmDHT : Segment
 {
+    enum TblClass
+    {
+        DC = 0,
+        AC = 1,
+    }
+
+    public struct Symb
+    {
+        public byte numZeroes;
+        public byte valBitlen; // AC 1-10, DC 0-11 ?
+    }
+
+    readonly List<TblClass> type; // Tc
+    readonly List<byte> quanTableInd; // Th
+    readonly List<byte[]> codesPerLen; // Li 
+    readonly List<KeyValuePair<ushort, Symb>[][]> codesToSymb; // [1-16][Li] = code/symb
+
+    public SgmDHT(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
+    {
+        status = (int)Status.OK;
+
+        int qtOff = 0;
+
+        type = [];
+        quanTableInd = [];
+        codesPerLen = [];
+        codesToSymb = [];
+
+        while (qtOff < _marker.len)
+        {
+            byte ti = _data[qtOff];
+            type.Add((TblClass)(ti >> 4));
+            quanTableInd.Add((byte)(ti & 0b00001111));
+            codesPerLen.Add(new byte[16]);
+            codesToSymb.Add(new KeyValuePair<ushort, Symb>[16][]);
+            var _codesPerLen = codesPerLen[^1];
+            var _codesToSymb = codesToSymb[^1];
+
+            qtOff++;
+            int vOff = qtOff + 16;
+            for (int i = 0; i < 16; i++)
+            {
+                int Li = _codesPerLen[i] = _data[qtOff + i];
+                var cts = _codesToSymb[i] = new KeyValuePair<ushort, Symb>[Math.Max(1, Li)];
+
+                for (int k = 0; k < Li; k++)
+                {
+                    byte symb = _data[vOff + k];
+                    cts[k] = new KeyValuePair<ushort, Symb>(1, new Symb
+                    {
+                        numZeroes = (byte)(symb >> 4),
+                        valBitlen = (byte)(symb & 0b00001111)
+                    });
+                }
+
+                vOff += Li;
+            }
+
+            qtOff += vOff;
+        }
+    }
+
+    protected override string ParsedData()
+    {
+        string outp = "";
+
+        for (int i = 0; i < quanTableInd.Count; i++)
+        {
+            var _codesPerLen = codesPerLen[i];
+            var _codesToSymb = codesToSymb[i];
+
+            string tInfo = "      codebitlen(totalSymb) code:numZrs/valBitlen, ..\n";
+            for (int k = 0; k < 16; k++)
+            {
+                var cts = _codesToSymb[k];
+                var len = _codesPerLen[k];
+                tInfo += $"      {k + 1,2}({len})";
+                for (int j = 0; j < len; j++)
+                {
+                    var kv = cts[j];
+                    var code = kv.Key;
+                    var symb = kv.Value;
+                    var numZrs = symb.numZeroes;
+                    var valBitlen = symb.valBitlen;
+                    tInfo += $" {code}:{numZrs}/{valBitlen}";
+                }
+                tInfo += "\n";
+            }
+            outp +=
+            $"""
+                  table type: {type[i]}
+                  table id [{quanTableInd[i]}]
+            {tInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+            """;
+        }
+
+        return outp;
+    }
 }
 /// <summary>
 /// Define Quantization Table
@@ -239,12 +335,12 @@ public class SgmDQT : Segment
         while (qtOff < _marker.len)
         {
             QZigZag.Add(new ushort[64]);
-            QTable.Add(new ushort[8,8]);
+            QTable.Add(new ushort[8, 8]);
 
             var _QZigZag = QZigZag[^1];
             var _QTable = QTable[^1];
 
-            int pt = _data[qtOff];
+            byte pt = _data[qtOff];
             var _qtPrec = (byte)(pt >> 4);
             qtPrec.Add(_qtPrec);
             quanTableInd.Add((byte)(pt & 0b00001111));
@@ -261,7 +357,8 @@ public class SgmDQT : Segment
                     _QZigZag[cnt++] =
                         BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + i, 2));
 
-            } else {
+            } else
+            {
                 status = (int)Status.QTableBadFormat;
                 return;
             }

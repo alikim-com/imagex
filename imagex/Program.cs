@@ -15,7 +15,8 @@ internal class Program
         //TestCRC32();
         //TestLoadPng();
         //TestLoadJpg();
-        StudyQTables();
+        //StudyQTables();
+        PrintImageInfo();
     }
 
     static void StudyQTables()
@@ -59,6 +60,7 @@ internal class Program
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
         if (fname == "") fname = "42.jpg";// "baloon.jpg";
+        Console.WriteLine("decoding '" + fname + "'..");
 
         var images = Jpg.FromFile(path, fname);
         foreach (var jpg in images) Console.WriteLine(jpg);
