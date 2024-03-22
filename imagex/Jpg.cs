@@ -236,6 +236,8 @@ public class SgmDHT : Segment
             var _codesPerLen = codesPerLen[^1];
             var _codesToSymb = codesToSymb[^1];
 
+            ushort code = 0;
+
             qtOff++;
             int vOff = qtOff + 16;
             for (int i = 0; i < 16; i++)
@@ -246,7 +248,7 @@ public class SgmDHT : Segment
                 for (int k = 0; k < Li; k++)
                 {
                     byte symb = _data[vOff + k];
-                    cts[k] = new KeyValuePair<ushort, Symb>(1, new Symb
+                    cts[k] = new KeyValuePair<ushort, Symb>(code++, new Symb
                     {
                         numZeroes = (byte)(symb >> 4),
                         valBitlen = (byte)(symb & 0b00001111)
@@ -254,6 +256,8 @@ public class SgmDHT : Segment
                 }
 
                 vOff += Li;
+
+                code <<= 1;
             }
 
             qtOff += vOff;
@@ -274,7 +278,7 @@ public class SgmDHT : Segment
             {
                 var cts = _codesToSymb[k];
                 var len = _codesPerLen[k];
-                tInfo += $"      {k + 1,2}({len})";
+                tInfo += $"      {k + 1,2}({len})".PadRight(13, ' ');
                 for (int j = 0; j < len; j++)
                 {
                     var kv = cts[j];
@@ -282,7 +286,9 @@ public class SgmDHT : Segment
                     var symb = kv.Value;
                     var numZrs = symb.numZeroes;
                     var valBitlen = symb.valBitlen;
-                    tInfo += $" {code}:{numZrs}/{valBitlen}";
+                    var codeBin = Convert.ToString(code, 2).PadLeft(k + 1, '0');
+                    tInfo += $" {codeBin}:{numZrs}/{valBitlen}";
+                    if (k == 15 && (j + 1) % 4 == 0) tInfo += "\n             ";
                 }
                 tInfo += "\n";
             }
