@@ -59,7 +59,7 @@ internal class Program
 
         Console.WriteLine("Please enter file name to decode:");
         string fname = Console.ReadLine() ?? "";
-        if (fname == "") fname = "42.jpg";// "baloon.jpg";
+        if (fname == "") fname = "baloon.jpg";
         Console.WriteLine("decoding '" + fname + "'..");
 
         var images = Jpg.FromFile(path, fname);

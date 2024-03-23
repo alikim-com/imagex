@@ -155,7 +155,7 @@ public class SgmSOF0 : Segment
             compId[ind] = _data[6 + off];
             byte samFact = _data[7 + off];
             samFactHor[ind] = (byte)(samFact >> 4);
-            samFactVer[ind] = (byte)(samFact & 0b00001111);
+            samFactVer[ind] = (byte)(samFact & 0x0F);
             quanTableInd[ind] = _data[8 + off];
             ind++;
         }
@@ -230,7 +230,7 @@ public class SgmDHT : Segment
         {
             byte ti = _data[qtOff];
             type.Add((TblClass)(ti >> 4));
-            quanTableInd.Add((byte)(ti & 0b00001111));
+            quanTableInd.Add((byte)(ti & 0x0F));
             codesPerLen.Add(new byte[16]);
             codesToSymb.Add(new KeyValuePair<ushort, Symb>[16][]);
             var _codesPerLen = codesPerLen[^1];
@@ -251,7 +251,7 @@ public class SgmDHT : Segment
                     cts[k] = new KeyValuePair<ushort, Symb>(code++, new Symb
                     {
                         numZeroes = (byte)(symb >> 4),
-                        valBitlen = (byte)(symb & 0b00001111)
+                        valBitlen = (byte)(symb & 0x0F)
                     });
                 }
 
@@ -260,12 +260,14 @@ public class SgmDHT : Segment
                 code <<= 1;
             }
 
-            qtOff += vOff;
+            qtOff = vOff;
         }
     }
 
     protected override string ParsedData()
     {
+        int maxLineLen = 100;
+
         string outp = "";
 
         for (int i = 0; i < quanTableInd.Count; i++)
@@ -278,7 +280,9 @@ public class SgmDHT : Segment
             {
                 var cts = _codesToSymb[k];
                 var len = _codesPerLen[k];
-                tInfo += $"      {k + 1,2}({len})".PadRight(13, ' ');
+                var pref = $"      {k + 1,2}({len})".PadRight(13);
+                int lineLen = pref.Length;
+                tInfo += pref;
                 for (int j = 0; j < len; j++)
                 {
                     var kv = cts[j];
@@ -287,8 +291,14 @@ public class SgmDHT : Segment
                     var numZrs = symb.numZeroes;
                     var valBitlen = symb.valBitlen;
                     var codeBin = Convert.ToString(code, 2).PadLeft(k + 1, '0');
-                    tInfo += $" {codeBin}:{numZrs}/{valBitlen}";
-                    if (k == 15 && (j + 1) % 4 == 0) tInfo += "\n             ";
+                    var rec = $" {codeBin}:{numZrs:X}/{valBitlen:X}";
+                    if (lineLen + rec.Length > maxLineLen)
+                    {
+                        lineLen = 0;
+                        rec = "\n".PadRight(pref.Length + 1) + rec;
+                    }
+                    lineLen += rec.Length;
+                    tInfo += rec;
                 }
                 tInfo += "\n";
             }
@@ -349,7 +359,7 @@ public class SgmDQT : Segment
             byte pt = _data[qtOff];
             var _qtPrec = (byte)(pt >> 4);
             qtPrec.Add(_qtPrec);
-            quanTableInd.Add((byte)(pt & 0b00001111));
+            quanTableInd.Add((byte)(pt & 0x0F));
 
             if (_qtPrec == 0)
                 for (int i = 0; i < 64; i++) _QZigZag[i] = _data[qtOff + i + 1];
