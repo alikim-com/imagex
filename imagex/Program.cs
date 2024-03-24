@@ -13,8 +13,8 @@ internal class Program
         //TestLoadPng();
         //TestLoadJpg();
         //StudyQTables();
-        //PrintImageInfo();
-        TestReadHuffmanValues();
+        PrintImageInfo();
+        //TestReadHuffmanValues();
     }
 
     static void TestReadHuffmanValues()

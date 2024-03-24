@@ -211,7 +211,7 @@ public class SgmDHT : Segment
     }
 
     readonly List<TblClass> type; // Tc
-    readonly List<byte> quanTableInd; // Th
+    readonly List<byte> huffTableInd; // Th
     readonly List<byte[]> codesPerLen; // Li 
     readonly List<KeyValuePair<ushort, Symb>[][]> codesToSymb; // [1-16][Li] = code/symb
 
@@ -222,7 +222,7 @@ public class SgmDHT : Segment
         int qtOff = 0;
 
         type = [];
-        quanTableInd = [];
+        huffTableInd = [];
         codesPerLen = [];
         codesToSymb = [];
 
@@ -230,7 +230,7 @@ public class SgmDHT : Segment
         {
             byte ti = _data[qtOff];
             type.Add((TblClass)(ti >> 4));
-            quanTableInd.Add((byte)(ti & 0x0F));
+            huffTableInd.Add((byte)(ti & 0x0F));
             codesPerLen.Add(new byte[16]);
             codesToSymb.Add(new KeyValuePair<ushort, Symb>[16][]);
             var _codesPerLen = codesPerLen[^1];
@@ -270,7 +270,7 @@ public class SgmDHT : Segment
 
         string outp = "";
 
-        for (int i = 0; i < quanTableInd.Count; i++)
+        for (int i = 0; i < huffTableInd.Count; i++)
         {
             var _codesPerLen = codesPerLen[i];
             var _codesToSymb = codesToSymb[i];
@@ -305,7 +305,7 @@ public class SgmDHT : Segment
             outp +=
             $"""
                   table type: {type[i]}
-                  table id [{quanTableInd[i]}]
+                  table id [{huffTableInd[i]}]
             {tInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
             """;
@@ -520,8 +520,68 @@ public class SgmDRI(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 /// <summary>
 /// Start Of Scan
 /// </summary>
-public class SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+public class SgmSOS : Segment
 {
+    readonly byte numComp; // Nf
+
+    readonly byte[] compId; // Ci
+    readonly byte[] dcTableInd; // Td
+    readonly byte[] acTableInd; // Ta
+
+    readonly byte selBeg; // Ss
+    readonly byte selEnd; // Se
+    readonly byte bitPosHigh; // Ah
+    readonly byte bitPosLow; // Al
+
+    public SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
+    {
+        status = (int)Status.OK;
+
+        numComp = _data[0];
+        compId = new byte[numComp];
+        dcTableInd = new byte[numComp];
+        acTableInd = new byte[numComp];
+
+        int ind = 0;
+        int paramLen = numComp * 2;
+        for (int off = 0; off < paramLen; off += 2)
+        {
+            compId[ind] = _data[1 + off];
+            byte dcAc = _data[2 + off];
+            dcTableInd[ind] = (byte)(dcAc >> 4);
+            acTableInd[ind] = (byte)(dcAc & 0x0F);
+            ind++;
+        }
+
+        selBeg = _data[1 + paramLen];
+        selEnd = _data[2 + paramLen];
+        byte bitPos = _data[3 + paramLen];
+        bitPosHigh = (byte)(bitPos >> 4);
+        bitPosLow = (byte)(bitPos & 0x0F);
+    }
+
+    protected override string ParsedData()
+    {
+        string compInfo = "";
+        for (int i = 0; i < numComp; i++)
+            compInfo +=
+            $"""
+                   [{compId[i]}]
+                   DC table [{dcTableInd[i]}]
+                   AC table [{acTableInd[i]}]
+
+             """;
+
+        return
+        $"""
+              components: {numComp}
+              selection: {selBeg} - {selEnd}
+              bit pos high: {bitPosHigh}
+              bit pos low:  {bitPosLow}
+        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+
+        """;
+    }
 }
 /// <summary>
 /// (JFIF) JPEG File Interchange Format
