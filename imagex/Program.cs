@@ -1,10 +1,7 @@
 ﻿
 using System.Buffers.Binary;
-using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Hashing;
-using System.Xml.Linq;
 
 namespace imagex;
 
@@ -16,8 +13,105 @@ internal class Program
         //TestLoadPng();
         //TestLoadJpg();
         //StudyQTables();
-        PrintImageInfo();
+        //PrintImageInfo();
+        TestHuffmanValues();
     }
+
+    static void TestHuffmanValues()
+    {
+        // 000 001 010 011 100 101 110 111
+        // -7  -6  -5  -4    4   5   6   7
+
+        // 001000     == -6 huff
+        // 110111 ~
+        // 000110 >>  == +6 2's comp
+        // 111001 ~
+        // 111010 ++  == -6 2's comp
+
+        // 010 111 011 101 110 111 011 101 110 101 101 101 101 111 101 111 011 011 011 011 010 110 100 101
+        // -5  7   -4  5   6   7   -4  5   6   5   5   5   5   7   5   7   -4  -4  -4  -4  -5  6   4   5
+
+        byte[] data = [
+            0b01011101,
+            0b11011101,
+            0b11011101,
+            0b11010110,
+            0b11011011,
+            0b11101111,
+            0b01101101,
+            0b10110101,
+            0b10100101];
+
+        var vbitLen = 3;
+        var arrLen = data.Length;
+        var vLen = arrLen * 8 / vbitLen;
+
+        short[] val = new short[vLen]; // must be 16 bit
+
+        int bytesLoaded;
+        int payload;
+        
+        ulong cont; // must be 64 bit
+
+        // initial load
+        cont = 0;
+        bytesLoaded = Math.Min(8, arrLen);
+        if (bytesLoaded >= 8)
+        {
+            var sp = new ReadOnlySpan<byte>(data, 0, 8);
+            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
+        }
+        else
+        {
+            for (int i = 0; i < arrLen; i++)
+            {
+                cont <<= 8;
+                cont |= data[i];
+            }
+            cont <<= 64 - arrLen * 8;
+        }
+        payload = bytesLoaded * 8;
+
+        int vind = 0;
+        int shft = 64 - vbitLen;
+        while (true && vind < vLen)
+        {
+            int bytesToLoad = arrLen - bytesLoaded;
+            if (bytesToLoad == 0) break;
+
+            var neg = (cont >> 63) == 0;
+            val[vind++] = neg ? (short)(~((~cont) >> shft) + 1) : (short)(cont >> shft);
+
+            cont <<= vbitLen;
+        }
+
+        Console.WriteLine(string.Join(" ", val));
+
+
+            /*
+             if (payload < dsorLen && bytesToLoad != 0)
+                {
+                    var availPayloadLen = 64 - payload;
+                    var wholeBytes = Math.Min(availPayloadLen / 8, bytesToLoad);
+
+                    ulong newPayload = 0;
+                    for (int i = 0; i < wholeBytes; i++)
+                    {
+                        newPayload <<= 8;
+                        newPayload |= data[bytesLoaded++];
+                    }
+                    var actPayloadLen = wholeBytes * 8;
+                    newPayload <<= availPayloadLen - actPayloadLen;
+                    divend |= newPayload;
+
+                    payload += actPayloadLen;
+
+                    //Log("tal " + Convert.ToString((long)divend, 2).PadLeft(64, '0'));
+                }
+             */
+
+
+        }
 
     static void StudyQTables()
     {
