@@ -32,6 +32,122 @@ public class Jpg : Image
         }
     }
 
+    public static int[,] ZigZagToRowCol(int size = 8)
+    {
+        /*
+
+         0  1  5  6 14 15 27 28 
+         2  4  7 13 16 26 29 42 
+         3  8 12 17 25 30 41 43
+         9 11 18 24 31 40 44 53
+        10 19 23 32 39 45 52 54
+        20 22 33 38 46 51 55 60
+        21 34 37 47 50 56 59 61
+        35 36 48 49 57 58 62 63
+
+        */
+
+        // 1, 2, .. 8,   7, 6 .. 1 = 15 diag strides
+        int snum = size * 2 - 1;
+        int sm1 = size - 1;
+        int[,] si = new int[snum, 2]; // stride intervals
+        int cnt = 0;
+        int run = 0;
+        for (int i = 1; i <= size; i++)
+        { // stride length
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+        for (int i = sm1; i > 0; i--)
+        {
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+
+        int szSq = size * size;
+
+        int[,] rowCol = new int[szSq, 2];
+
+        for (int i = 0; i < szSq; i++)
+        {
+            int sind = 0;
+            int fwd = 0;
+            int bwd = 0;
+            for (int s = 0; s < snum; s++)
+            {
+                fwd = i - si[s, 0];
+                bwd = i - si[s, 1];
+                if (bwd <= 0 && fwd >= 0)
+                {
+                    sind = s;
+                    break;
+                }
+            }
+            int off = sind % 2 != 0 ? fwd : -bwd;
+            int col = Math.Min(sm1, sind) - off;
+            int row = Math.Max(0, sind - sm1) + off;
+            rowCol[i, 0] = row;
+            rowCol[i, 1] = col;
+        }
+
+        return rowCol;
+    }
+
+    public static int[] ZigZagToRowMajor(int size = 8)
+    {
+        // 1, 2, .. 8,   7, 6 .. 1 = 15 diag strides
+        int snum = size * 2 - 1;
+        int sm1 = size - 1;
+        int[,] si = new int[snum, 2]; // stride intervals
+        int cnt = 0;
+        int run = 0;
+        for (int i = 1; i <= size; i++)
+        { // stride length
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+        for (int i = sm1; i > 0; i--)
+        {
+            si[cnt, 0] = run;
+            si[cnt, 1] = run + i - 1;
+            run += i;
+            cnt++;
+        }
+
+        int szSq = size * size;
+
+        int[] rowMajor = new int[szSq];
+
+        for (int i = 0; i < szSq; i++)
+        {
+            int sind = 0;
+            int fwd = 0;
+            int bwd = 0;
+            for (int s = 0; s < snum; s++)
+            {
+                fwd = i - si[s, 0];
+                bwd = i - si[s, 1];
+                if (bwd <= 0 && fwd >= 0)
+                {
+                    sind = s;
+                    break;
+                }
+            }
+            int off = sind % 2 != 0 ? fwd : -bwd;
+            int col = Math.Min(sm1, sind) - off;
+            int row = Math.Max(0, sind - sm1) + off;
+            rowMajor[i] = row * size + col;
+        }
+
+        return rowMajor;
+    }
+
     public static List<Jpg> FromFile(string path, string fname)
     {
         List<Jpg> JpgList = [];
@@ -331,7 +447,7 @@ public class SgmDQT : Segment
 
     */
 
-    static int[,] rowCol = ZigZagToRowCol();
+    readonly static int[,] rowCol = Jpg.ZigZagToRowCol();
 
     readonly List<byte> qtPrec; // Pq
     readonly List<byte> quanTableInd; // Tq
@@ -398,71 +514,6 @@ public class SgmDQT : Segment
         return OK;
     }
 
-    static int[,] ZigZagToRowCol(int size = 8)
-    {
-        /*
-
-         0  1  5  6 14 15 27 28 
-         2  4  7 13 16 26 29 42 
-         3  8 12 17 25 30 41 43
-         9 11 18 24 31 40 44 53
-        10 19 23 32 39 45 52 54
-        20 22 33 38 46 51 55 60
-        21 34 37 47 50 56 59 61
-        35 36 48 49 57 58 62 63
-
-        */
-
-        // 1, 2, .. 8,   7, 6 .. 1 = 15 diag strides
-        int snum = size * 2 - 1;
-        int sm1 = size - 1;
-        int[,] si = new int[snum, 2]; // stride intervals
-        int cnt = 0;
-        int run = 0;
-        for (int i = 1; i <= size; i++)
-        { // stride length
-            si[cnt, 0] = run;
-            si[cnt, 1] = run + i - 1;
-            run += i;
-            cnt++;
-        }
-        for (int i = sm1; i > 0; i--)
-        {
-            si[cnt, 0] = run;
-            si[cnt, 1] = run + i - 1;
-            run += i;
-            cnt++;
-        }
-
-        int szSq = size * size;
-
-        int[,] rowCol = new int[szSq, 2];
-
-        for (int i = 0; i < szSq; i++)
-        {
-            int sind = 0;
-            int fwd = 0;
-            int bwd = 0;
-            for (int s = 0; s < snum; s++)
-            {
-                fwd = i - si[s, 0];
-                bwd = i - si[s, 1];
-                if (bwd <= 0 && fwd >= 0)
-                {
-                    sind = s;
-                    break;
-                }
-            }
-            int off = sind % 2 != 0 ? fwd : -bwd;
-            int col = Math.Min(sm1, sind) - off;
-            int row = Math.Max(0, sind - sm1) + off;
-            rowCol[i, 0] = row;
-            rowCol[i, 1] = col;
-        }
-
-        return rowCol;
-    }
-
     protected override string ParsedData()
     {
         string outp = "";
@@ -522,7 +573,7 @@ public class SgmDRI(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 /// </summary>
 public class SgmSOS : Segment
 {
-    readonly byte numComp; // Nf
+    readonly byte numComp; // Ns
 
     readonly byte[] compId; // Ci
     readonly byte[] dcTableInd; // Td
@@ -532,6 +583,84 @@ public class SgmSOS : Segment
     readonly byte selEnd; // Se
     readonly byte bitPosHigh; // Ah
     readonly byte bitPosLow; // Al
+
+    // if DNL segment after the first scan - stop or FFD9
+    // check progressive mode
+    static void DecodeMCUs(byte[] data, int off)
+    {
+
+        var arrLen = data.Length - off;
+
+        int bytesLoaded;
+        int payload;
+
+        ulong cont; // must be 64 bit
+
+        // initial load
+        cont = 0;
+        bytesLoaded = Math.Min(8, arrLen);
+        if (bytesLoaded >= 8)
+        {
+            var sp = new ReadOnlySpan<byte>(data, 0, 8);
+            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
+        } else
+        {
+            for (int i = 0; i < arrLen; i++)
+            {
+                cont <<= 8;
+                cont |= data[i];
+            }
+            cont <<= 64 - arrLen * 8;
+        }
+        payload = bytesLoaded * 8;
+
+        // LOOP TO READ HUFFCODES
+        // vvv
+
+        var vbitLen = 3;
+        var maxv = (1 << vbitLen) - 1;
+        var minPayload = 3;
+        var vLen = 3;
+        short[] val = new short[vLen]; // must be 16 bit
+
+
+        // read value
+
+        int vind = 0;
+        int shft = 64 - vbitLen;
+        while (true)
+        {
+            int bytesToLoad = arrLen - bytesLoaded;
+            if (vind > vLen - 1 || bytesToLoad == 0 && payload < minPayload) break;
+
+            var neg = (cont >> 63) == 0;
+            val[vind++] = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
+
+
+            cont <<= vbitLen;
+            payload -= vbitLen;
+
+            if (payload >= minPayload) continue;
+
+            // refill
+            ulong payloadRefill = 0; // must be 64 bit
+            var availLen = 64 - payload;
+            var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+            var refillBits = refillBytes * 8;
+            for (int i = 0; i < refillBytes; i++)
+            {
+                payloadRefill <<= 8;
+                payloadRefill |= data[bytesLoaded++];
+            }
+            payloadRefill <<= availLen - refillBits;
+            cont |= payloadRefill;
+
+            payload += refillBits;
+        }
+
+        Console.WriteLine(string.Join(" ", val));
+
+    }
 
     public SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
@@ -558,6 +687,8 @@ public class SgmSOS : Segment
         byte bitPos = _data[3 + paramLen];
         bitPosHigh = (byte)(bitPos >> 4);
         bitPosLow = (byte)(bitPos & 0x0F);
+
+        if(_data.Array != null) DecodeMCUs(_data.Array, _data.Offset + 4 + paramLen);
     }
 
     protected override string ParsedData()

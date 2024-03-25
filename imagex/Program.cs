@@ -47,6 +47,7 @@ internal class Program
             0b10100101];
 
         var vbitLen = 3;
+        var maxv = (1 << vbitLen) - 1;
         var minPayload = 3;
         var vLen = 24;
 
@@ -85,7 +86,8 @@ internal class Program
             if (vind > vLen - 1 || bytesToLoad == 0 && payload < minPayload) break;
 
             var neg = (cont >> 63) == 0;
-            val[vind++] = neg ? (short)(~((~cont) >> shft) + 1) : (short)(cont >> shft); // ref_1
+            val[vind++] = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
+            // val[vind++] = neg ? (short)(~((~cont) >> shft) + 1) : (short)(cont >> shft); // ref_1
 
             cont <<= vbitLen;
             payload -= vbitLen;
