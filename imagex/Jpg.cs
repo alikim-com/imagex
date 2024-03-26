@@ -3,11 +3,21 @@
 
 using System.Buffers.Binary;
 using static imagex.Segment;
+using static imagex.SgmDHT;
 
 namespace imagex;
 
 public class Jpg : Image
 {
+    enum Status
+    {
+        None = 0,
+        OK = 1,
+        FrameHeaderNotFound = 2,
+        DHTNotFound = 4,
+    }
+    Status status;
+
     public struct Marker
     {
         public SgmType type;
@@ -19,16 +29,80 @@ public class Jpg : Image
     readonly List<Marker> markers;
     readonly List<Segment> segments = [];
 
+    struct Component
+    {
+        public int id;
+        public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb;
+        public List<int>? dcValidCodeLength;
+        public KeyValuePair<ushort, Symb>[][]? acCodesToSymb;
+        public List<int>? acValidCodeLength;
+    }
+    readonly Component[] comps = [];
+
     public Jpg(
         ArraySegment<byte> _data,
         List<Marker> _markers) : base(Format.Jpeg, 0, 0)
     {
+        status = Status.OK;
+
+        // create segment objects
         data = _data;
         markers = _markers;
         for (int i = 0; i < markers.Count; i++)
         {
             var mrk = markers[i];
             segments.Add(Create(mrk, _data));
+        }
+
+        // init MCU decoding
+        if (GetSegments(SgmType.SOS)[0] is not SgmSOS sos)
+        {
+            status = Status.FrameHeaderNotFound;
+            return;
+        }
+        var numComp = sos.numComp;
+        comps = new Component[numComp];
+
+        var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
+
+        for (int i = 0; i < numComp; i++)
+        {
+            comps[i].id = sos.compId[i];
+            var dcInd = sos.dcTableInd[i];
+            var acInd = sos.acTableInd[i];
+
+            var dcFound = false;
+            var acFound = false;
+            foreach (var ht in dht)
+            {
+                if (ht.HasMatch(
+                    TblClass.DC,
+                    dcInd,
+                    out comps[i].dcCodesToSymb,
+                    out comps[i].dcValidCodeLength))
+                {
+                    dcFound = true;
+                    break;
+                }
+            }
+            foreach (var ht in dht)
+            {
+                if (ht.HasMatch(
+                    TblClass.AC,
+                    acInd,
+                    out comps[i].acCodesToSymb,
+                    out comps[i].acValidCodeLength))
+                {
+                    acFound = true;
+                    break;
+                }
+            }
+            if(!dcFound || !acFound) {
+                status |= Status.DHTNotFound;
+                return;
+            }
+
+            //DecodeMCU(data);
         }
     }
 
@@ -148,6 +222,85 @@ public class Jpg : Image
         return rowMajor;
     }
 
+
+    // if DNL segment after the first scan - stop or FFD9
+    // check progressive mode
+    static void DecodeMCU(byte[] data, int off)
+    {
+
+        var arrLen = data.Length - off;
+
+        int bytesLoaded;
+        int payload;
+
+        ulong cont; // must be 64 bit
+
+        // initial load
+        cont = 0;
+        bytesLoaded = Math.Min(8, arrLen);
+        if (bytesLoaded >= 8)
+        {
+            var sp = new ReadOnlySpan<byte>(data, 0, 8);
+            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
+        } else
+        {
+            for (int i = 0; i < arrLen; i++)
+            {
+                cont <<= 8;
+                cont |= data[i];
+            }
+            cont <<= 64 - arrLen * 8;
+        }
+        payload = bytesLoaded * 8;
+
+        // LOOP TO READ HUFFCODES
+        // vvv
+
+        var vbitLen = 3;
+        var maxv = (1 << vbitLen) - 1;
+        var minPayload = 3;
+        var vLen = 3;
+        short[] val = new short[vLen]; // must be 16 bit
+
+
+        // read value
+
+        int vind = 0;
+        int shft = 64 - vbitLen;
+        while (true)
+        {
+            int bytesToLoad = arrLen - bytesLoaded;
+            if (vind > vLen - 1 || bytesToLoad == 0 && payload < minPayload) break;
+
+            var neg = (cont >> 63) == 0;
+            val[vind++] = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
+
+
+            cont <<= vbitLen;
+            payload -= vbitLen;
+
+            if (payload >= minPayload) continue;
+
+            // refill
+            ulong payloadRefill = 0; // must be 64 bit
+            var availLen = 64 - payload;
+            var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+            var refillBits = refillBytes * 8;
+            for (int i = 0; i < refillBytes; i++)
+            {
+                payloadRefill <<= 8;
+                payloadRefill |= data[bytesLoaded++];
+            }
+            payloadRefill <<= availLen - refillBits;
+            cont |= payloadRefill;
+
+            payload += refillBits;
+        }
+
+        Console.WriteLine(string.Join(" ", val));
+
+    }
+
     public static List<Jpg> FromFile(string path, string fname)
     {
         List<Jpg> JpgList = [];
@@ -224,6 +377,7 @@ public class Jpg : Image
         image
            raw data: {raw}
         {sgmStr} 
+        status: {Utils.IntBitsToEnums((int)status, typeof(Status))}
         """;
     }
 }
@@ -235,9 +389,9 @@ public class SgmSOF0 : Segment
     readonly byte samPrec; // P
     readonly ushort numLines; // Y
     readonly ushort samPerLine; // X
-    readonly byte numComp; // Nf
+    public readonly byte numComp; // Nf
 
-    readonly byte[] compId; // Ci
+    public readonly byte[] compId; // Ci
     readonly byte[] samFactHor; // Hi
     readonly byte[] samFactVer; // Vi
     readonly byte[] quanTableInd; // Tqi
@@ -314,7 +468,7 @@ public class SgmSOF2(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_ma
 /// </summary>
 public class SgmDHT : Segment
 {
-    enum TblClass
+    public enum TblClass
     {
         DC = 0,
         AC = 1,
@@ -323,13 +477,37 @@ public class SgmDHT : Segment
     public struct Symb
     {
         public byte numZeroes;
-        public byte valBitlen; // AC 1-10, DC 0-11 ?
+        public byte valBitlen; // AC 1-10, DC 0-11
     }
 
     readonly List<TblClass> type; // Tc
     readonly List<byte> huffTableInd; // Th
     readonly List<byte[]> codesPerLen; // Li 
-    readonly List<KeyValuePair<ushort, Symb>[][]> codesToSymb; // [1-16][Li] = code/symb
+    public readonly List<KeyValuePair<ushort, Symb>[][]> codesToSymb; // [1-16][Li] = code/symb
+    public readonly List<List<int>> validCodeLength;
+
+    public bool HasMatch(
+        TblClass _type,
+        int _ind,
+        out KeyValuePair<ushort, Symb>[][]? _codesToSymb,
+        out List<int>? _validCodeLength)
+    {
+
+        _codesToSymb = null;
+        _validCodeLength = null;
+
+        for (int i = 0; i < type.Count; i++)
+        {
+            if (type[i] == _type && huffTableInd[i] == _ind)
+            {
+                _codesToSymb = codesToSymb[i];
+                _validCodeLength = validCodeLength[i];
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public SgmDHT(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
@@ -341,6 +519,7 @@ public class SgmDHT : Segment
         huffTableInd = [];
         codesPerLen = [];
         codesToSymb = [];
+        validCodeLength = [];
 
         while (qtOff < _marker.len)
         {
@@ -349,8 +528,10 @@ public class SgmDHT : Segment
             huffTableInd.Add((byte)(ti & 0x0F));
             codesPerLen.Add(new byte[16]);
             codesToSymb.Add(new KeyValuePair<ushort, Symb>[16][]);
+            validCodeLength.Add([]);
             var _codesPerLen = codesPerLen[^1];
             var _codesToSymb = codesToSymb[^1];
+            var _validCodeLength = validCodeLength[^1];
 
             ushort code = 0;
 
@@ -360,6 +541,7 @@ public class SgmDHT : Segment
             {
                 int Li = _codesPerLen[i] = _data[qtOff + i];
                 var cts = _codesToSymb[i] = new KeyValuePair<ushort, Symb>[Math.Max(1, Li)];
+                if (Li > 0) _validCodeLength.Add(i);
 
                 for (int k = 0; k < Li; k++)
                 {
@@ -573,94 +755,18 @@ public class SgmDRI(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 /// </summary>
 public class SgmSOS : Segment
 {
-    readonly byte numComp; // Ns
+    public readonly byte numComp; // Ns
 
-    readonly byte[] compId; // Ci
-    readonly byte[] dcTableInd; // Td
-    readonly byte[] acTableInd; // Ta
+    public readonly byte[] compId; // Ci
+    public readonly byte[] dcTableInd; // Td
+    public readonly byte[] acTableInd; // Ta
 
     readonly byte selBeg; // Ss
     readonly byte selEnd; // Se
     readonly byte bitPosHigh; // Ah
     readonly byte bitPosLow; // Al
 
-    // if DNL segment after the first scan - stop or FFD9
-    // check progressive mode
-    static void DecodeMCUs(byte[] data, int off)
-    {
-
-        var arrLen = data.Length - off;
-
-        int bytesLoaded;
-        int payload;
-
-        ulong cont; // must be 64 bit
-
-        // initial load
-        cont = 0;
-        bytesLoaded = Math.Min(8, arrLen);
-        if (bytesLoaded >= 8)
-        {
-            var sp = new ReadOnlySpan<byte>(data, 0, 8);
-            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
-        } else
-        {
-            for (int i = 0; i < arrLen; i++)
-            {
-                cont <<= 8;
-                cont |= data[i];
-            }
-            cont <<= 64 - arrLen * 8;
-        }
-        payload = bytesLoaded * 8;
-
-        // LOOP TO READ HUFFCODES
-        // vvv
-
-        var vbitLen = 3;
-        var maxv = (1 << vbitLen) - 1;
-        var minPayload = 3;
-        var vLen = 3;
-        short[] val = new short[vLen]; // must be 16 bit
-
-
-        // read value
-
-        int vind = 0;
-        int shft = 64 - vbitLen;
-        while (true)
-        {
-            int bytesToLoad = arrLen - bytesLoaded;
-            if (vind > vLen - 1 || bytesToLoad == 0 && payload < minPayload) break;
-
-            var neg = (cont >> 63) == 0;
-            val[vind++] = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
-
-
-            cont <<= vbitLen;
-            payload -= vbitLen;
-
-            if (payload >= minPayload) continue;
-
-            // refill
-            ulong payloadRefill = 0; // must be 64 bit
-            var availLen = 64 - payload;
-            var refillBytes = Math.Min(availLen / 8, bytesToLoad);
-            var refillBits = refillBytes * 8;
-            for (int i = 0; i < refillBytes; i++)
-            {
-                payloadRefill <<= 8;
-                payloadRefill |= data[bytesLoaded++];
-            }
-            payloadRefill <<= availLen - refillBits;
-            cont |= payloadRefill;
-
-            payload += refillBits;
-        }
-
-        Console.WriteLine(string.Join(" ", val));
-
-    }
+    readonly int mcuOff;
 
     public SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
@@ -688,7 +794,7 @@ public class SgmSOS : Segment
         bitPosHigh = (byte)(bitPos >> 4);
         bitPosLow = (byte)(bitPos & 0x0F);
 
-        if(_data.Array != null) DecodeMCUs(_data.Array, _data.Offset + 4 + paramLen);
+        mcuOff = _data.Offset + 4 + paramLen;
     }
 
     protected override string ParsedData()
