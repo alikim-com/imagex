@@ -5,6 +5,120 @@ using System.Numerics;
 
 namespace utils;
 
+public class BitStream
+{
+    readonly byte[] data;
+    readonly int off;
+    ulong cont; // must be 64 bit
+
+    readonly int arrLen;
+    int bytesLoaded;
+    int payload;
+
+    public BitStream(byte[] _data, int _off)
+    {
+        data = _data;
+        off = _off;
+
+        arrLen = data.Length - off;
+
+        // initial load
+
+        cont = 0;
+        bytesLoaded = Math.Min(8, arrLen);
+        if (bytesLoaded >= 8)
+        {
+            var sp = new ReadOnlySpan<byte>(data, off, 8);
+            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
+        } else
+        {
+            for (int i = 0; i < arrLen; i++)
+            {
+                cont <<= 8;
+                cont |= data[off + i];
+            }
+            cont <<= 64 - arrLen * 8;
+        }
+        payload = bytesLoaded * 8;
+    }
+
+    public bool ReadBits(int vbitLen, out short val)
+    {
+        val = 0;
+        int shft = 64 - vbitLen;
+
+        if (payload < vbitLen)
+        {
+            int bytesToLoad = arrLen - bytesLoaded;
+            if (payload + bytesToLoad * 8 < vbitLen) return false;
+            else
+            {
+                // refill cont
+                ulong payloadRefill = 0; // must be 64 bit
+                var availLen = 64 - payload;
+                var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+                var refillBits = refillBytes * 8;
+                for (int i = 0; i < refillBytes; i++)
+                {
+                    payloadRefill <<= 8;
+                    payloadRefill |= data[off + bytesLoaded];
+                    bytesLoaded++;
+                }
+                payloadRefill <<= availLen - refillBits;
+                cont |= payloadRefill;
+
+                payload += refillBits;
+            }
+        }
+
+        val = (short)(cont >> shft);
+
+        cont <<= vbitLen;
+        payload -= vbitLen;
+
+        return true;
+    }
+
+    public bool ReadHuffCode(int vbitLen, out short val)
+    {
+        val = 0;
+        int shft = 64 - vbitLen;
+
+        if (payload < vbitLen)
+        {
+            int bytesToLoad = arrLen - bytesLoaded;
+            if (payload + bytesToLoad * 8 < vbitLen) return false;
+            else
+            {
+                // refill cont
+                ulong payloadRefill = 0; // must be 64 bit
+                var availLen = 64 - payload;
+                var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+                var refillBits = refillBytes * 8;
+                for (int i = 0; i < refillBytes; i++)
+                {
+                    payloadRefill <<= 8;
+                    payloadRefill |= data[off + bytesLoaded];
+                    bytesLoaded++;
+                }
+                payloadRefill <<= availLen - refillBits;
+                cont |= payloadRefill;
+
+                payload += refillBits;
+            }
+        }
+
+        int maxv = (1 << vbitLen) - 1;
+        var neg = (cont >> 63) == 0;
+        val = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
+
+        cont <<= vbitLen;
+        payload -= vbitLen;
+
+        return true;
+    }
+}
+
 public static class ArraySegmentExtensions
 {
     public static string SneakPeek(this ArraySegment<byte> segm, int depth = 4)
@@ -19,7 +133,7 @@ public static class ArraySegmentExtensions
     }
 }
 
-public static class ByteArrayExtensions 
+public static class ByteArrayExtensions
 {
     public static string ToString(this byte[] bytes, string fmt = " ")
     {
@@ -145,7 +259,7 @@ public class Utils
         ulong divend = 0;
         // CRC32
         ulong dsor = 0b10000010_01100000_10001110_11011011_10000000_00000000_00000000_00000000;
-        int dsorLen = 33;  
+        int dsorLen = 33;
 
         // CRC3
         //ulong dsor = 0b10110000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
@@ -185,8 +299,7 @@ public class Utils
             if (zeroPayload)
             {
                 payload = 0;
-            } 
-            else
+            } else
             {
                 payload -= leadZeros;
                 divend <<= leadZeros;
@@ -198,7 +311,7 @@ public class Utils
             {
                 var availPayloadLen = 64 - payload;
                 var wholeBytes = Math.Min(availPayloadLen / 8, bytesToLoad);
-                
+
                 ulong newPayload = 0;
                 for (int i = 0; i < wholeBytes; i++)
                 {
