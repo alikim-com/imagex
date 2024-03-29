@@ -32,7 +32,7 @@ public class BitStream
             cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
         } else
         {
-            for (int i = 0; i < arrLen; i++)
+            for (int i = 0; i < arrLen; i++) // CHECK if FF followed by 00 and print
             {
                 cont <<= 8;
                 cont |= data[off + i];
