@@ -42,36 +42,56 @@ public class BitStream
         payload = bytesLoaded * 8;
     }
 
-    public bool ReadBits(int vbitLen, out short val)
+    bool Refill(int vbitLen)
+    {
+        int bytesToLoad = arrLen - bytesLoaded;
+        if (payload + bytesToLoad * 8 < vbitLen) return false;
+
+        // refill cont
+        ulong payloadRefill = 0; // must be 64 bit
+        var availLen = 64 - payload;
+        var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+        var refillBits = refillBytes * 8;
+        for (int i = 0; i < refillBytes; i++)
+        {
+            payloadRefill <<= 8;
+            payloadRefill |= data[off + bytesLoaded];
+            bytesLoaded++;
+        }
+        payloadRefill <<= availLen - refillBits;
+        cont |= payloadRefill;
+
+        payload += refillBits;
+
+        return true;
+    }
+
+    public void FwdBits(int vbitLen)
+    {
+        cont <<= vbitLen;
+        payload -= vbitLen;
+    }
+
+    public bool PeekBits(int vbitLen, out ushort val)
     {
         val = 0;
         int shft = 64 - vbitLen;
 
-        if (payload < vbitLen)
-        {
-            int bytesToLoad = arrLen - bytesLoaded;
-            if (payload + bytesToLoad * 8 < vbitLen) return false;
-            else
-            {
-                // refill cont
-                ulong payloadRefill = 0; // must be 64 bit
-                var availLen = 64 - payload;
-                var refillBytes = Math.Min(availLen / 8, bytesToLoad);
-                var refillBits = refillBytes * 8;
-                for (int i = 0; i < refillBytes; i++)
-                {
-                    payloadRefill <<= 8;
-                    payloadRefill |= data[off + bytesLoaded];
-                    bytesLoaded++;
-                }
-                payloadRefill <<= availLen - refillBits;
-                cont |= payloadRefill;
+        if (payload < vbitLen && !Refill(vbitLen)) return false;
 
-                payload += refillBits;
-            }
-        }
+        val = (ushort)(cont >> shft);
 
-        val = (short)(cont >> shft);
+        return true;
+    }
+
+    public bool GetBits(int vbitLen, out ushort val)
+    {
+        val = 0;
+        int shft = 64 - vbitLen;
+
+        if (payload < vbitLen && !Refill(vbitLen)) return false;
+
+        val = (ushort)(cont >> shft);
 
         cont <<= vbitLen;
         payload -= vbitLen;
@@ -79,34 +99,12 @@ public class BitStream
         return true;
     }
 
-    public bool ReadHuffCode(int vbitLen, out short val)
+    public bool GetHuffValue(int vbitLen, out short val)
     {
         val = 0;
         int shft = 64 - vbitLen;
 
-        if (payload < vbitLen)
-        {
-            int bytesToLoad = arrLen - bytesLoaded;
-            if (payload + bytesToLoad * 8 < vbitLen) return false;
-            else
-            {
-                // refill cont
-                ulong payloadRefill = 0; // must be 64 bit
-                var availLen = 64 - payload;
-                var refillBytes = Math.Min(availLen / 8, bytesToLoad);
-                var refillBits = refillBytes * 8;
-                for (int i = 0; i < refillBytes; i++)
-                {
-                    payloadRefill <<= 8;
-                    payloadRefill |= data[off + bytesLoaded];
-                    bytesLoaded++;
-                }
-                payloadRefill <<= availLen - refillBits;
-                cont |= payloadRefill;
-
-                payload += refillBits;
-            }
-        }
+        if (payload < vbitLen && !Refill(vbitLen)) return false;
 
         int maxv = (1 << vbitLen) - 1;
         var neg = (cont >> 63) == 0;
@@ -135,6 +133,9 @@ public static class ArraySegmentExtensions
 
 public static class ByteArrayExtensions
 {
+    public static string ToBinString(this byte[] bytes, string fmt = " ") =>
+        string.Join("", bytes.Select(b => Convert.ToString(b, 2) + fmt)!);
+
     public static string ToString(this byte[] bytes, string fmt = " ")
     {
         string hex = BitConverter.ToString(bytes);
@@ -179,6 +180,12 @@ public static class IntExtensions
         return BitConverter.GetBytes(memLayoutBE);
     }
 
+    public static byte[] BytesLeftToRight(this ulong val)
+    {
+        ulong memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
+        return BitConverter.GetBytes(memLayoutBE);
+    }
+
     public static byte[] BytesRightToLeft(this int val)
     {
         int memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
@@ -188,6 +195,11 @@ public static class IntExtensions
     public static byte[] BytesRightToLeft(this long val)
     {
         long memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
+        return BitConverter.GetBytes(memLayoutLE);
+    }
+    public static byte[] BytesRightToLeft(this ulong val)
+    {
+        ulong memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
         return BitConverter.GetBytes(memLayoutLE);
     }
 

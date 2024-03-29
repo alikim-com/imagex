@@ -15,6 +15,9 @@ public class Jpg : Image
         OK = 1,
         FrameHeaderNotFound = 2,
         DHTNotFound = 4,
+        BitStreamOutOfBounds = 8,
+        HCodeNotFound = 16,
+        SOSNotFound = 32,
     }
     Status status;
 
@@ -39,6 +42,26 @@ public class Jpg : Image
     }
     readonly Component[] comps = [];
 
+    readonly int mcuOff;
+
+    enum CompType
+    {
+        R,
+        G,
+        B,
+        Y,
+        Cr,
+        Cb,
+    }
+
+    struct MCU
+    {
+        public int x;
+        public int y;
+        public CompType type;
+    }
+    readonly MCU[,] mcus = new MCU [0,0];
+
     public Jpg(
         ArraySegment<byte> _data,
         List<Marker> _markers) : base(Format.Jpeg, 0, 0)
@@ -46,6 +69,7 @@ public class Jpg : Image
         status = Status.OK;
 
         // create segment objects
+
         data = _data;
         markers = _markers;
         for (int i = 0; i < markers.Count; i++)
@@ -55,13 +79,26 @@ public class Jpg : Image
         }
 
         // init MCU decoding
+
         if (GetSegments(SgmType.SOS)[0] is not SgmSOS sos)
         {
-            status = Status.FrameHeaderNotFound;
+            status = Status.SOSNotFound;
             return;
         }
         var numComp = sos.numComp;
         comps = new Component[numComp];
+        mcuOff = sos.mcuOff;
+
+        if (GetSegments(SgmType.SOF0)[0] is not SgmSOF0 sof0)
+        {
+            status = Status.FrameHeaderNotFound;
+            return;
+        }
+        Width = sof0.samPerLine;
+        Height = sof0.numLines;
+        var mcuWidth = (Width + 7) / 8;
+        var mcuHeight = (Height + 7) / 8;
+        mcus = new MCU[mcuWidth * numComp, mcuHeight];
 
         var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
 
@@ -97,13 +134,89 @@ public class Jpg : Image
                     break;
                 }
             }
-            if(!dcFound || !acFound) {
+            if (!dcFound || !acFound)
+            {
                 status |= Status.DHTNotFound;
                 return;
             }
-
-            //DecodeMCU(data);
         }
+
+
+        // if DNL segment after the first scan - stop or FFD9
+        // check progressive mode
+        // F9       1A       1D       12
+        // 11111001 00011010 00011101 00010010
+        //
+        // DC[0] 6(1)   111110:0/8
+        // 01 000110
+        // AC[0] 5(3)   11011:1/2
+        // 00
+
+        var bstr = new BitStream(data.Array!, mcuOff);
+
+        foreach (var cmp in comps)
+        {
+            // DC
+            var dcCodesToSymb = cmp.dcCodesToSymb ?? [];
+            foreach (var dcLen in cmp.dcValidCodeLength!)
+            {
+                if (!bstr.PeekBits(dcLen, out ushort code))
+                {
+                    status |= Status.BitStreamOutOfBounds;
+                    return;
+                }
+                var subArrInd = dcLen - 1; // zero-index
+                var ind = Array.FindIndex(dcCodesToSymb[subArrInd], kv => kv.Key == code);
+                if (ind != -1)
+                {
+                    bstr.FwdBits(dcLen);
+                    var symb = dcCodesToSymb[subArrInd][ind].Value;
+                    if (!bstr.GetHuffValue(symb.valBitlen, out short dcVal))
+                    {
+                        status |= Status.BitStreamOutOfBounds;
+                        return;
+                    }
+                    Console.WriteLine($"-------------------{code}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
+                    break;
+                }
+            }
+
+            // AC
+            var acCodesToSymb = cmp.acCodesToSymb ?? [];
+            for(int i = 0; i < 63; i++)
+            foreach (var acLen in cmp.acValidCodeLength!)
+            {
+                if (!bstr.PeekBits(acLen, out ushort code))
+                {
+                    status |= Status.BitStreamOutOfBounds;
+                    return;
+                }
+                var subArrInd = acLen - 1; // zero-index
+                var ind = Array.FindIndex(acCodesToSymb[subArrInd], kv => kv.Key == code);
+                if (ind != -1)
+                {
+                    bstr.FwdBits(acLen);
+                    var symb = acCodesToSymb[subArrInd][ind].Value;
+                    if (!bstr.GetHuffValue(symb.valBitlen, out short acVal))
+                    {
+                        status |= Status.BitStreamOutOfBounds;
+                        return;
+                    }
+                    Console.WriteLine($"-------------------{code}:{symb.numZeroes:X}/{symb.valBitlen:X} {acVal}");
+                    break;
+                }
+            }
+
+
+            break;
+        }
+
+    }
+
+    void DecodeMCU()
+    {
+
+
     }
 
     public static int[,] ZigZagToRowCol(int size = 8)
@@ -222,85 +335,6 @@ public class Jpg : Image
         return rowMajor;
     }
 
-
-    // if DNL segment after the first scan - stop or FFD9
-    // check progressive mode
-    static void DecodeMCU(byte[] data, int off)
-    {
-
-        var arrLen = data.Length - off;
-
-        int bytesLoaded;
-        int payload;
-
-        ulong cont; // must be 64 bit
-
-        // initial load
-        cont = 0;
-        bytesLoaded = Math.Min(8, arrLen);
-        if (bytesLoaded >= 8)
-        {
-            var sp = new ReadOnlySpan<byte>(data, 0, 8);
-            cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
-        } else
-        {
-            for (int i = 0; i < arrLen; i++)
-            {
-                cont <<= 8;
-                cont |= data[i];
-            }
-            cont <<= 64 - arrLen * 8;
-        }
-        payload = bytesLoaded * 8;
-
-        // LOOP TO READ HUFFCODES
-        // vvv
-
-        var vbitLen = 3;
-        var maxv = (1 << vbitLen) - 1;
-        var minPayload = 3;
-        var vLen = 3;
-        short[] val = new short[vLen]; // must be 16 bit
-
-
-        // read value
-
-        int vind = 0;
-        int shft = 64 - vbitLen;
-        while (true)
-        {
-            int bytesToLoad = arrLen - bytesLoaded;
-            if (vind > vLen - 1 || bytesToLoad == 0 && payload < minPayload) break;
-
-            var neg = (cont >> 63) == 0;
-            val[vind++] = neg ? (short)((int)(cont >> shft) - maxv) : (short)(cont >> shft);
-
-
-            cont <<= vbitLen;
-            payload -= vbitLen;
-
-            if (payload >= minPayload) continue;
-
-            // refill
-            ulong payloadRefill = 0; // must be 64 bit
-            var availLen = 64 - payload;
-            var refillBytes = Math.Min(availLen / 8, bytesToLoad);
-            var refillBits = refillBytes * 8;
-            for (int i = 0; i < refillBytes; i++)
-            {
-                payloadRefill <<= 8;
-                payloadRefill |= data[bytesLoaded++];
-            }
-            payloadRefill <<= availLen - refillBits;
-            cont |= payloadRefill;
-
-            payload += refillBits;
-        }
-
-        Console.WriteLine(string.Join(" ", val));
-
-    }
-
     public static List<Jpg> FromFile(string path, string fname)
     {
         List<Jpg> JpgList = [];
@@ -378,6 +412,7 @@ public class Jpg : Image
            raw data: {raw}
         {sgmStr} 
         status: {Utils.IntBitsToEnums((int)status, typeof(Status))}
+        MCU: 
         """;
     }
 }
@@ -387,8 +422,8 @@ public class Jpg : Image
 public class SgmSOF0 : Segment
 {
     readonly byte samPrec; // P
-    readonly ushort numLines; // Y
-    readonly ushort samPerLine; // X
+    public readonly ushort numLines; // Y
+    public readonly ushort samPerLine; // X
     public readonly byte numComp; // Nf
 
     public readonly byte[] compId; // Ci
@@ -541,7 +576,7 @@ public class SgmDHT : Segment
             {
                 int Li = _codesPerLen[i] = _data[qtOff + i];
                 var cts = _codesToSymb[i] = new KeyValuePair<ushort, Symb>[Math.Max(1, Li)];
-                if (Li > 0) _validCodeLength.Add(i);
+                if (Li > 0) _validCodeLength.Add(i + 1);
 
                 for (int k = 0; k < Li; k++)
                 {
@@ -766,7 +801,7 @@ public class SgmSOS : Segment
     readonly byte bitPosHigh; // Ah
     readonly byte bitPosLow; // Al
 
-    readonly int mcuOff;
+    public readonly int mcuOff;
 
     public SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
