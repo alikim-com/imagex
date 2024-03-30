@@ -19,6 +19,7 @@ public class Jpg : Image
         HCodeNotFound = 16,
         SOSNotFound = 32,
         UnknownSymbol = 64,
+        EOINotFound = 128,
     }
     Status status;
 
@@ -32,6 +33,7 @@ public class Jpg : Image
     readonly ArraySegment<byte> data;
     readonly List<Marker> markers;
     readonly List<Segment> segments = [];
+    readonly int eoiOff;
 
     struct Component
     {
@@ -61,7 +63,7 @@ public class Jpg : Image
         ArraySegment<byte> _data,
         List<Marker> _markers) : base(Format.Jpeg, 0, 0)
     {
-        status = Status.OK;
+        status = Status.None;
 
         // create segment objects
 
@@ -74,10 +76,10 @@ public class Jpg : Image
         }
 
         // init MCU decoding
-
-        if (GetSegments(SgmType.SOS)[0] is not SgmSOS sos)
+        var sgmSos = GetSegments(SgmType.SOS)[0];
+        if (sgmSos is not SgmSOS sos)
         {
-            status = Status.SOSNotFound;
+            status |= Status.SOSNotFound;
             return;
         }
         var numComp = sos.numComp;
@@ -86,7 +88,7 @@ public class Jpg : Image
 
         if (GetSegments(SgmType.SOF0)[0] is not SgmSOF0 sof0)
         {
-            status = Status.FrameHeaderNotFound;
+            status |= Status.FrameHeaderNotFound;
             return;
         }
         Width = sof0.samPerLine;
@@ -131,26 +133,19 @@ public class Jpg : Image
             }
             if (!dcFound || !acFound)
             {
-                status = Status.DHTNotFound;
+                status |= Status.DHTNotFound;
                 return;
             }
         }
 
+        // MCU decoding
 
-        // if DNL segment after the first scan - stop or FFD9
-        // check progressive mode
-        // F9       1A       1D       12
-        // 11111001 00011010 00011101 00010010
-        //
-        // DC[0] 6(1)   111110:0/8
-        // 01 000110
-        // AC[0] 5(3)   11011:1/2
-        // 00
+        // end of scan data is defined by a next segment marker or EOI
+        eoiOff = _data.Offset + _data.Count;
+        var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
+        var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
 
-        var bstr = new BitStream(data.Array!, mcuOff);
-
-        // put into zigzag with zero spacing, and print, then to mcu
-        // break on 00
+        var bstr = new BitStream(data.Array!, mcuOff, endOff, true);
 
         int mcuInd = 0;
         for (int r = 0; r < mcuHeight; r++)
@@ -175,7 +170,7 @@ public class Jpg : Image
                     {
                         if (!bstr.PeekBits(dcLen, out ushort code))
                         {
-                            status = Status.BitStreamOutOfBounds;
+                            status |= Status.BitStreamOutOfBounds;
                             return;
                         }
                         var subArrInd = dcLen - 1; // zero-index
@@ -186,15 +181,11 @@ public class Jpg : Image
                         bstr.FwdBits(dcLen);
                         var symb = dcCodesToSymb[subArrInd][ind].Value;
                         var valBitlen = symb.valBitlen;
-                        if (valBitlen == 0)
+                        short dcVal = 0;
+                        // valBitlen == 0 -> dcVal == 0 [code:0/0]
+                        if (valBitlen != 0 && !bstr.GetDCTValue(valBitlen, out dcVal))
                         {
-                            Console.WriteLine($"UnknownDCSymbol {code}:{symb.numZeroes:X}/{valBitlen:X}");
-                            status = Status.UnknownSymbol;
-                            return;
-                        }
-                        if (!bstr.GetHuffValue(valBitlen, out short dcVal))
-                        {
-                            status = Status.BitStreamOutOfBounds;
+                            status |= Status.BitStreamOutOfBounds;
                             return;
                         }
                         zigZag[zzInd] = dcVal;
@@ -205,7 +196,7 @@ public class Jpg : Image
                     if (!found)
                     {
                         Console.WriteLine("---- DC code not found ----");
-                        status = Status.HCodeNotFound;
+                        status |= Status.HCodeNotFound;
                         return;
                     }
 
@@ -237,7 +228,7 @@ public class Jpg : Image
                                     zzInd = 64;
                                     break;
                                 }
-                                if (numZeroes == 15) // 16 zeros
+                                if (numZeroes == 15) // 16 zeros ------------------------- check if wiorks
                                 {
                                     zzInd += 16;
                                     break;
@@ -246,7 +237,7 @@ public class Jpg : Image
                                 status |= Status.UnknownSymbol;
                                 return;
                             }
-                            if (!bstr.GetHuffValue(valBitlen, out short acVal))
+                            if (!bstr.GetDCTValue(valBitlen, out short acVal))
                             {
                                 status |= Status.BitStreamOutOfBounds;
                                 return;
@@ -254,18 +245,18 @@ public class Jpg : Image
                             zzInd += numZeroes + 1;
                             if (zzInd < 64) zigZag[zzInd] = acVal;
                             var codeBin = Convert.ToString(code, 2).PadLeft(acLen + 1, '0');
-                            Console.WriteLine($"------------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {acVal}");
+                            Console.WriteLine($"------------------- {codeBin}:{numZeroes:X}/{valBitlen:X} {acVal}");
                             break;
                         }
                         if (!found)
                         {
                             Console.WriteLine("---- AC code not found ----");
-                            status = Status.HCodeNotFound;
+                            status |= Status.HCodeNotFound;
                             return;
                         }
                     }
-                    
-                    var table = mcus[mcuInd].table = new short[8,8];
+
+                    var table = mcus[mcuInd].table = new short[8, 8];
                     for (int i = 0; i < 64; i++)
                     {
                         int row = rowCol[i, 0];
@@ -284,6 +275,8 @@ public class Jpg : Image
 
                     mcuInd++;
                 }
+
+        status |= Status.OK;
     }
 
     void DecodeMCU()
@@ -1651,6 +1644,14 @@ public class SgmCOM(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 
 public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 {
+    // SOF0 : Baseline DCT
+    // SOF1 : Extended sequential DCT, Huffman coding
+    // SOF2 : Progressive DCT, Huffman coding
+    // SOF3 : Lossless(sequential), Huffman coding
+    // SOF9 : Extended sequential DCT, arithmetic coding
+    // SOF10 : Progressive DCT, arithmetic coding
+    // SOF11 : Lossless(sequential), arithmetic coding
+
     public enum SgmType
     {
         SOI = 0xFFD8,
@@ -1702,6 +1703,8 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         return obj == null ? throw new Exception
                 ($"Segment.Create : couldn't create instance of type '{clsType}'") : (Segment)obj;
     }
+
+    public int GetOffset() => marker.pos;
 
     public override string ToString()
     {

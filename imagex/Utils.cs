@@ -15,34 +15,90 @@ public class BitStream
     int bytesLoaded;
     int payload;
 
-    public BitStream(byte[] _data, int _off)
+    readonly bool skip;
+    readonly Func<int, bool> Refill;
+
+    void InitLoad()
     {
-        data = _data;
-        off = _off;
-
-        arrLen = data.Length - off;
-
-        // initial load
-
-        cont = 0;
         bytesLoaded = Math.Min(8, arrLen);
-        if (bytesLoaded >= 8)
+        if (bytesLoaded == 8)
         {
             var sp = new ReadOnlySpan<byte>(data, off, 8);
             cont = BinaryPrimitives.ReadUInt64BigEndian(sp);
         } else
         {
-            for (int i = 0; i < arrLen; i++) // CHECK if FF followed by 00 and print
+            for (int i = 0; i < bytesLoaded; i++)
             {
                 cont <<= 8;
                 cont |= data[off + i];
             }
-            cont <<= 64 - arrLen * 8;
+            cont <<= 64 - bytesLoaded * 8;
         }
-        payload = bytesLoaded * 8;
     }
 
-    bool Refill(int vbitLen)
+    void InitLoadSkip()
+    {
+        int i = 0;
+        bytesLoaded = 0;
+        do
+        {
+            byte b = data[off + i];
+            cont <<= 8;
+            cont |= b;
+            bytesLoaded++;
+            i = b != 0xFF ? i + 1 : i + 2;
+
+        } while (bytesLoaded < 8 && off + i < arrLen);
+
+        cont <<= 64 - bytesLoaded * 8;
+    }
+
+    /// <summary>
+    /// BitStream Ctor
+    /// </summary>
+    /// <param name="skip">Skip zero bytes at 0xFF00 in encoded JPEG data</param>
+    public BitStream(byte[] _data, int begOff, int endOff, bool _skip)
+    {
+        skip = _skip;
+        data = _data;
+        off = begOff;
+
+        arrLen = endOff - begOff;
+
+        cont = 0;
+
+        if (skip) InitLoadSkip(); else InitLoad();
+
+        payload = bytesLoaded * 8;
+
+        Refill = skip ? RefillSkip : RefillAny;
+    }
+
+    bool RefillAny(int vbitLen)
+    {
+        int bytesToLoad = arrLen - bytesLoaded;
+        if (payload + bytesToLoad * 8 < vbitLen) return false;
+
+        // refill cont
+        ulong payloadRefill = 0; // must be 64 bit
+        var availLen = 64 - payload;
+        var refillBytes = Math.Min(availLen / 8, bytesToLoad);
+        var refillBits = refillBytes * 8;
+        for (int i = 0; i < refillBytes; i++)
+        {
+            payloadRefill <<= 8;
+            payloadRefill |= data[off + bytesLoaded];
+            bytesLoaded++;
+        }
+        payloadRefill <<= availLen - refillBits;
+        cont |= payloadRefill;
+
+        payload += refillBits;
+
+        return true;
+    }
+
+    bool RefillSkip(int vbitLen)
     {
         int bytesToLoad = arrLen - bytesLoaded;
         if (payload + bytesToLoad * 8 < vbitLen) return false;
@@ -99,7 +155,10 @@ public class BitStream
         return true;
     }
 
-    public bool GetHuffValue(int vbitLen, out short val)
+    /// <summary>
+    /// For JPEG DCT compressed data
+    /// </summary>
+    public bool GetDCTValue(int vbitLen, out short val)
     {
         val = 0;
         int shft = 64 - vbitLen;
