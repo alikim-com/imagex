@@ -36,21 +36,26 @@ public class BitStream
         }
     }
 
+    /// <summary>
+    /// Skip zero bytes at 0xFF00 in encoded JPEG data
+    /// </summary>
     void InitLoadSkip()
     {
-        int i = 0;
         bytesLoaded = 0;
+        int i = bytesLoaded;
+        int ldCnt = 0;
         do
         {
             byte b = data[off + i];
             cont <<= 8;
             cont |= b;
-            bytesLoaded++;
+            ldCnt++;
             i = b != 0xFF ? i + 1 : i + 2;
 
-        } while (bytesLoaded < 8 && off + i < arrLen);
+        } while (ldCnt < 8 && i < arrLen);
+        bytesLoaded = i;
 
-        cont <<= 64 - bytesLoaded * 8;
+        cont <<= 64 - ldCnt * 8;
     }
 
     /// <summary>
@@ -59,7 +64,7 @@ public class BitStream
     /// <param name="skip">Skip zero bytes at 0xFF00 in encoded JPEG data</param>
     public BitStream(byte[] _data, int begOff, int endOff, bool _skip)
     {
-        skip = _skip;
+
         data = _data;
         off = begOff;
 
@@ -67,6 +72,7 @@ public class BitStream
 
         cont = 0;
 
+        skip = _skip;
         if (skip) InitLoadSkip(); else InitLoad();
 
         payload = bytesLoaded * 8;
@@ -98,22 +104,37 @@ public class BitStream
         return true;
     }
 
+    /// <summary>
+    /// Skip zero bytes at 0xFF00 in encoded JPEG data
+    /// </summary>
     bool RefillSkip(int vbitLen)
     {
-        int bytesToLoad = arrLen - bytesLoaded;
-        if (payload + bytesToLoad * 8 < vbitLen) return false;
+        Console.WriteLine("------- REFILLSKIP");
+
+        if (bytesLoaded == arrLen) return false;
 
         // refill cont
         ulong payloadRefill = 0; // must be 64 bit
         var availLen = 64 - payload;
-        var refillBytes = Math.Min(availLen / 8, bytesToLoad);
-        var refillBits = refillBytes * 8;
-        for (int i = 0; i < refillBytes; i++)
+        Console.WriteLine($"payload: {payload}");
+        var refillBytesMax = availLen / 8;
+        int refCnt = 0;
+        int i = bytesLoaded;
+        do
         {
+            byte b = data[off + i];
+            Console.WriteLine($"--- {b:X2}");
             payloadRefill <<= 8;
-            payloadRefill |= data[off + bytesLoaded];
-            bytesLoaded++;
-        }
+            payloadRefill |= b;
+            refCnt++;
+            i = b != 0xFF ? i + 1 : i + 2;
+
+            if (b == 0xFF) Console.WriteLine("------- FF00");
+
+        } while (refCnt < refillBytesMax && i < arrLen);
+        bytesLoaded = i;
+
+        var refillBits = refCnt * 8;
         payloadRefill <<= availLen - refillBits;
         cont |= payloadRefill;
 

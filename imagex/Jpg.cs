@@ -189,7 +189,7 @@ public class Jpg : Image
                             return;
                         }
                         zigZag[zzInd] = dcVal;
-                        var codeBin = Convert.ToString(code, 2).PadLeft(dcLen + 1, '0');
+                        var codeBin = Convert.ToString(code, 2).PadLeft(dcLen, '0');
                         Console.WriteLine($"---------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
                         break;
                     }
@@ -244,7 +244,7 @@ public class Jpg : Image
                             }
                             zzInd += numZeroes + 1;
                             if (zzInd < 64) zigZag[zzInd] = acVal;
-                            var codeBin = Convert.ToString(code, 2).PadLeft(acLen + 1, '0');
+                            var codeBin = Convert.ToString(code, 2).PadLeft(acLen, '0');
                             Console.WriteLine($"------------------- {codeBin}:{numZeroes:X}/{valBitlen:X} {acVal}");
                             break;
                         }
