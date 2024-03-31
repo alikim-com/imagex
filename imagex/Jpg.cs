@@ -1,5 +1,6 @@
-﻿// https://www.media.mit.edu/pia/Research/deepview/exif.html
-// table tag info extractor ./tagExtractor.js
+﻿// 1. https://www.media.mit.edu/pia/Research/deepview/exif.html
+//    table tag info extractor ./tagExtractor.js
+// 2. https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&pp=iAQB
 
 using System.Buffers.Binary;
 using static imagex.Segment;
@@ -20,6 +21,7 @@ public class Jpg : Image
         SOSNotFound = 32,
         UnknownSymbol = 64,
         EOINotFound = 128,
+        ComponInfoNotFound = 256,
     }
     Status status;
 
@@ -45,17 +47,31 @@ public class Jpg : Image
     }
     readonly Component[] comps = [];
 
-    readonly int mcuOff;
+    readonly int bitStrOff;
 
-    struct MCU
+    /// <summary>
+    /// Represents one Data Unit (8x8) channel
+    /// </summary>
+    struct DataUnit
     {
-        public int row;
-        public int col;
         public int compId;
         public short[] zigZag;
         public short[,] table;
     }
-    readonly MCU[] mcus = [];
+    readonly DataUnit[] DUnits = [];
+
+    /// <summary>
+    /// Minimal Coded Unit
+    /// </summary>
+    struct MCU
+    {
+        public int duWidth;
+        public int duHeight;
+        public int row;
+        public int col;
+        public List<DataUnit> DUnits;
+        public List<int> compSeq;
+    }
 
     readonly static int[,] rowCol = ZigZagToRowCol();
 
@@ -75,7 +91,8 @@ public class Jpg : Image
             segments.Add(Create(mrk, _data));
         }
 
-        // init MCU decoding
+        // init decoding
+
         var sgmSos = GetSegments(SgmType.SOS)[0];
         if (sgmSos is not SgmSOS sos)
         {
@@ -84,7 +101,7 @@ public class Jpg : Image
         }
         var numComp = sos.numComp;
         comps = new Component[numComp];
-        mcuOff = sos.mcuOff;
+        bitStrOff = sos.bitStrOff;
 
         if (GetSegments(SgmType.SOF0)[0] is not SgmSOF0 sof0)
         {
@@ -93,9 +110,24 @@ public class Jpg : Image
         }
         Width = sof0.samPerLine;
         Height = sof0.numLines;
+
+        // find scan-component sampling factors in frame header
+        int[] hSamp = new int[numComp];
+        int[] vSamp = new int[numComp];
+        for (int i = 0; i < numComp; i++) {
+            int ind = Array.IndexOf(sof0.compId, sos.compId[i]);
+            if(ind == -1)
+            {
+                status |= Status.ComponInfoNotFound;
+                return;
+            }
+            hSamp[i] = sof0.samFactHor[ind];
+            vSamp[i] = sof0.samFactVer[ind];
+        }
+
         var mcuWidth = (Width + 7) / 8;
         var mcuHeight = (Height + 7) / 8;
-        mcus = new MCU[mcuWidth * mcuHeight * numComp];
+        DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
 
         var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
 
@@ -145,21 +177,21 @@ public class Jpg : Image
         var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
         var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
 
-        var bstr = new BitStream(data.Array!, mcuOff, endOff, true);
+        var bstr = new BitStream(data.Array!, bitStrOff, endOff, true);
 
         int mcuInd = 0;
         for (int r = 0; r < mcuHeight; r++)
             for (int c = 0; c < mcuWidth; c++)
                 foreach (var cmp in comps)
                 {
-                    mcus[mcuInd] = new MCU
+                    DUnits[mcuInd] = new DataUnit
                     {
-                        row = r,
-                        col = c,
+                       // row = r,
+                       // col = c,
                         compId = cmp.id,
                         zigZag = new short[64]
                     };
-                    var zigZag = mcus[mcuInd].zigZag;
+                    var zigZag = DUnits[mcuInd].zigZag;
 
                     int zzInd = 0;
 
@@ -256,7 +288,7 @@ public class Jpg : Image
                         }
                     }
 
-                    var table = mcus[mcuInd].table = new short[8, 8];
+                    var table = DUnits[mcuInd].table = new short[8, 8];
                     for (int i = 0; i < 64; i++)
                     {
                         int row = rowCol[i, 0];
@@ -270,7 +302,7 @@ public class Jpg : Image
                         for (int j = 0; j < 8; j++) tInfo += table[k, j].ToString().PadLeft(4, ' ');
                         tInfo += "\n";
                     }
-                    Console.WriteLine(tInfo);
+                   // Console.WriteLine(tInfo);
 
 
                     mcuInd++;
@@ -492,8 +524,8 @@ public class SgmSOF0 : Segment
     public readonly byte numComp; // Nf
 
     public readonly byte[] compId; // Ci
-    readonly byte[] samFactHor; // Hi
-    readonly byte[] samFactVer; // Vi
+    public readonly byte[] samFactHor; // Hi
+    public readonly byte[] samFactVer; // Vi
     readonly byte[] quanTableInd; // Tqi
 
     /// <summary>
@@ -866,7 +898,7 @@ public class SgmSOS : Segment
     readonly byte bitPosHigh; // Ah
     readonly byte bitPosLow; // Al
 
-    public readonly int mcuOff;
+    public readonly int bitStrOff;
 
     public SgmSOS(Jpg.Marker _marker, ArraySegment<byte> _data) : base(_marker, _data)
     {
@@ -894,7 +926,7 @@ public class SgmSOS : Segment
         bitPosHigh = (byte)(bitPos >> 4);
         bitPosLow = (byte)(bitPos & 0x0F);
 
-        mcuOff = _data.Offset + 4 + paramLen;
+        bitStrOff = _data.Offset + 4 + paramLen;
     }
 
     protected override string ParsedData()
