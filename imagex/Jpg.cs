@@ -111,21 +111,23 @@ public class Jpg : Image
         Width = sof0.samPerLine;
         Height = sof0.numLines;
 
-        // find scan-component sampling factors in frame header
-        int[] hSamp = new int[numComp];
-        int[] vSamp = new int[numComp];
-        for (int i = 0; i < numComp; i++) {
+        ///
+        /// assign mcuwidth/height
+
+        for (int i = 0; i < numComp; i++)
+        {
             int ind = Array.IndexOf(sof0.compId, sos.compId[i]);
-            if(ind == -1)
+            if (ind == -1)
             {
                 status |= Status.ComponInfoNotFound;
                 return;
             }
-            hSamp[i] = sof0.samFactHor[ind];
-            vSamp[i] = sof0.samFactVer[ind];
+            ///
+            /// assign upscale
+            ///
         }
 
-        var mcuWidth = (Width + 7) / 8;
+            var mcuWidth = (Width + 7) / 8;
         var mcuHeight = (Height + 7) / 8;
         DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
 
@@ -186,8 +188,8 @@ public class Jpg : Image
                 {
                     DUnits[mcuInd] = new DataUnit
                     {
-                       // row = r,
-                       // col = c,
+                        // row = r,
+                        // col = c,
                         compId = cmp.id,
                         zigZag = new short[64]
                     };
@@ -302,7 +304,7 @@ public class Jpg : Image
                         for (int j = 0; j < 8; j++) tInfo += table[k, j].ToString().PadLeft(4, ' ');
                         tInfo += "\n";
                     }
-                   // Console.WriteLine(tInfo);
+                    // Console.WriteLine(tInfo);
 
 
                     mcuInd++;
@@ -524,9 +526,18 @@ public class SgmSOF0 : Segment
     public readonly byte numComp; // Nf
 
     public readonly byte[] compId; // Ci
-    public readonly byte[] samFactHor; // Hi
-    public readonly byte[] samFactVer; // Vi
+    readonly byte[] samFactHor; // Hi
+    readonly byte[] samFactVer; // Vi
     readonly byte[] quanTableInd; // Tqi
+
+    public struct Upscale
+    {
+        public int hor;
+        public int ver;
+    }
+    public readonly Upscale[] upscale; // DU to MCU
+    public int mcuWidth; // in DU
+    public int mcuHeight; 
 
     /// <summary>
     /// Baseline JPEG - STORE FLAG IN JPEG CLASS
@@ -562,6 +573,21 @@ public class SgmSOF0 : Segment
             ind++;
         }
 
+        // find MCU size and upsampling for comp Data Units
+
+        int hMax = samFactHor.Max();
+        int vMax = samFactVer.Max();
+
+        upscale = new Upscale[numComp];
+        for (int i = 0; i < numComp; i++)
+            upscale[i] = new Upscale
+            {
+                hor = hMax / samFactHor[i],
+                ver = vMax / samFactVer[i],
+            };
+
+        mcuWidth = hMax / samFactHor.Min();
+        mcuHeight = vMax / samFactVer.Min();
     }
 
     protected override string ParsedData()
