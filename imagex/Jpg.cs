@@ -37,41 +37,123 @@ public class Jpg : Image
     readonly List<Segment> segments = [];
     readonly int eoiOff;
 
-    struct Component
+    class Scan
     {
-        public int id;
-        public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb;
-        public List<int>? dcValidCodeLength;
-        public KeyValuePair<ushort, Symb>[][]? acCodesToSymb;
-        public List<int>? acValidCodeLength;
-    }
-    readonly Component[] comps = [];
+        struct Component
+        {
+            public int id;
+            public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb;
+            public List<int>? dcValidCodeLength;
+            public KeyValuePair<ushort, Symb>[][]? acCodesToSymb;
+            public List<int>? acValidCodeLength;
+        }
+        readonly Component[] comps;
 
-    readonly int bitStrOff;
+        /// <summary>
+        /// Represents one Data Unit (8x8) channel
+        /// </summary>
+        struct DataUnit
+        {
+            public int compId;
+            public short[] zigZag;
+            public short[,] table;
+        }
+        readonly DataUnit[] DUnits = [];
 
-    /// <summary>
-    /// Represents one Data Unit (8x8) channel
-    /// </summary>
-    struct DataUnit
-    {
-        public int compId;
-        public short[] zigZag;
-        public short[,] table;
-    }
-    readonly DataUnit[] DUnits = [];
+        /// <summary>
+        /// Minimal Coded Unit
+        /// </summary>
+        struct MCU
+        {
+            public int row;
+            public int col;
+            public List<DataUnit> DUnits;
+        }
+        readonly List<MCU> mcu;
 
-    /// <summary>
-    /// Minimal Coded Unit
-    /// </summary>
-    struct MCU
-    {
-        public int duWidth;
-        public int duHeight;
-        public int row;
-        public int col;
-        public List<DataUnit> DUnits;
-        public List<int> compSeq;
+        readonly int numComp;
+        readonly int bitStrOff;
+        readonly int mcuWidth;
+        readonly int mcuHeight;
+
+        readonly List<int> duSeq;
+        SgmSOF0.Upscale[] upscale;
+
+        Status status;
+
+        void LocateComponentTables(SgmSOS sos, IEnumerable<SgmDHT> dht)
+        {
+            for (int i = 0; i < numComp; i++)
+            {
+                var dcInd = sos.dcTableInd[i];
+                var acInd = sos.acTableInd[i];
+
+                var dcFound = false;
+                var acFound = false;
+                foreach (var ht in dht)
+                {
+                    if (ht.HasMatch(
+                        TblClass.DC,
+                        dcInd,
+                        out comps[i].dcCodesToSymb,
+                        out comps[i].dcValidCodeLength))
+                    {
+                        dcFound = true;
+                        break;
+                    }
+                }
+                foreach (var ht in dht)
+                {
+                    if (ht.HasMatch(
+                        TblClass.AC,
+                        acInd,
+                        out comps[i].acCodesToSymb,
+                        out comps[i].acValidCodeLength))
+                    {
+                        acFound = true;
+                        break;
+                    }
+                }
+                if (!dcFound || !acFound)
+                {
+                    status |= Status.DHTNotFound;
+                    return;
+                }
+            }
+        }
+
+        public Scan(SgmSOF0 sof0, SgmSOS sos, IEnumerable<SgmDHT> dht)
+        {
+            numComp = sos.numComp;
+            comps = new Component[numComp];
+            bitStrOff = sos.bitStrOff;
+
+            mcuWidth = sof0.mcuWidth;
+            mcuHeight = sof0.mcuHeight;
+
+            // associate components
+
+            upscale = new SgmSOF0.Upscale[numComp];
+
+            for (int i = 0; i < numComp; i++)
+            {
+                int sosCID = sos.compId[i];
+                int ind = Array.IndexOf(sof0.compId, sosCID);
+                if (ind == -1)
+                {
+                    status |= Status.ComponInfoNotFound;
+                    return;
+                }
+                comps[i].id = sosCID;
+                upscale[i] = sof0.upscale[ind];
+            }
+            mcuWidth = sof0.mcuWidth;
+            mcuHeight = sof0.mcuHeight;
+
+            LocateComponentTables(sos, dht);
+        }
     }
+    readonly List<Scan> scan = [];
 
     readonly static int[,] rowCol = ZigZagToRowCol();
 
@@ -91,86 +173,35 @@ public class Jpg : Image
             segments.Add(Create(mrk, _data));
         }
 
-        // init decoding
-
         var sgmSos = GetSegments(SgmType.SOS)[0];
         if (sgmSos is not SgmSOS sos)
         {
             status |= Status.SOSNotFound;
             return;
         }
-        var numComp = sos.numComp;
-        comps = new Component[numComp];
-        bitStrOff = sos.bitStrOff;
 
         if (GetSegments(SgmType.SOF0)[0] is not SgmSOF0 sof0)
         {
             status |= Status.FrameHeaderNotFound;
             return;
         }
+
         Width = sof0.samPerLine;
         Height = sof0.numLines;
 
-        ///
-        /// assign mcuwidth/height
-
-        for (int i = 0; i < numComp; i++)
-        {
-            int ind = Array.IndexOf(sof0.compId, sos.compId[i]);
-            if (ind == -1)
-            {
-                status |= Status.ComponInfoNotFound;
-                return;
-            }
-            ///
-            /// assign upscale
-            ///
-        }
-
-            var mcuWidth = (Width + 7) / 8;
-        var mcuHeight = (Height + 7) / 8;
-        DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
+        // process scan (decode Data Units and assemble MCUs)
 
         var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
 
-        for (int i = 0; i < numComp; i++)
-        {
-            comps[i].id = sos.compId[i];
-            var dcInd = sos.dcTableInd[i];
-            var acInd = sos.acTableInd[i];
+        scan.Add(new Scan(sof0, sos, dht));
 
-            var dcFound = false;
-            var acFound = false;
-            foreach (var ht in dht)
-            {
-                if (ht.HasMatch(
-                    TblClass.DC,
-                    dcInd,
-                    out comps[i].dcCodesToSymb,
-                    out comps[i].dcValidCodeLength))
-                {
-                    dcFound = true;
-                    break;
-                }
-            }
-            foreach (var ht in dht)
-            {
-                if (ht.HasMatch(
-                    TblClass.AC,
-                    acInd,
-                    out comps[i].acCodesToSymb,
-                    out comps[i].acValidCodeLength))
-                {
-                    acFound = true;
-                    break;
-                }
-            }
-            if (!dcFound || !acFound)
-            {
-                status |= Status.DHTNotFound;
-                return;
-            }
-        }
+        // ------------------------------------
+
+        DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
+
+        
+
+        
 
         // MCU decoding
 
@@ -311,11 +342,6 @@ public class Jpg : Image
                 }
 
         status |= Status.OK;
-    }
-
-    void DecodeMCU()
-    {
-
     }
 
     public static int[,] ZigZagToRowCol(int size = 8)
@@ -537,7 +563,7 @@ public class SgmSOF0 : Segment
     }
     public readonly Upscale[] upscale; // DU to MCU
     public int mcuWidth; // in DU
-    public int mcuHeight; 
+    public int mcuHeight;
 
     /// <summary>
     /// Baseline JPEG - STORE FLAG IN JPEG CLASS
