@@ -15,13 +15,11 @@ public class Jpg : Image
         None = 0,
         OK = 1,
         FrameHeaderNotFound = 2,
-        DHTNotFound = 4,
-        BitStreamOutOfBounds = 8,
-        HCodeNotFound = 16,
-        SOSNotFound = 32,
-        UnknownSymbol = 64,
-        EOINotFound = 128,
-        ComponInfoNotFound = 256,
+        BitStreamOutOfBounds = 4,
+        HCodeNotFound = 8,
+        SOSNotFound = 16,
+        UnknownSymbol = 32,
+        EOINotFound = 64,
     }
     Status status;
 
@@ -37,122 +35,6 @@ public class Jpg : Image
     readonly List<Segment> segments = [];
     readonly int eoiOff;
 
-    class Scan
-    {
-        struct Component
-        {
-            public int id;
-            public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb;
-            public List<int>? dcValidCodeLength;
-            public KeyValuePair<ushort, Symb>[][]? acCodesToSymb;
-            public List<int>? acValidCodeLength;
-        }
-        readonly Component[] comps;
-
-        /// <summary>
-        /// Represents one Data Unit (8x8) channel
-        /// </summary>
-        struct DataUnit
-        {
-            public int compId;
-            public short[] zigZag;
-            public short[,] table;
-        }
-        readonly DataUnit[] DUnits = [];
-
-        /// <summary>
-        /// Minimal Coded Unit
-        /// </summary>
-        struct MCU
-        {
-            public int row;
-            public int col;
-            public List<DataUnit> DUnits;
-        }
-        readonly List<MCU> mcu;
-
-        readonly int numComp;
-        readonly int bitStrOff;
-        readonly int mcuWidth;
-        readonly int mcuHeight;
-
-        readonly List<int> duSeq;
-        SgmSOF0.Upscale[] upscale;
-
-        Status status;
-
-        void LocateComponentTables(SgmSOS sos, IEnumerable<SgmDHT> dht)
-        {
-            for (int i = 0; i < numComp; i++)
-            {
-                var dcInd = sos.dcTableInd[i];
-                var acInd = sos.acTableInd[i];
-
-                var dcFound = false;
-                var acFound = false;
-                foreach (var ht in dht)
-                {
-                    if (ht.HasMatch(
-                        TblClass.DC,
-                        dcInd,
-                        out comps[i].dcCodesToSymb,
-                        out comps[i].dcValidCodeLength))
-                    {
-                        dcFound = true;
-                        break;
-                    }
-                }
-                foreach (var ht in dht)
-                {
-                    if (ht.HasMatch(
-                        TblClass.AC,
-                        acInd,
-                        out comps[i].acCodesToSymb,
-                        out comps[i].acValidCodeLength))
-                    {
-                        acFound = true;
-                        break;
-                    }
-                }
-                if (!dcFound || !acFound)
-                {
-                    status |= Status.DHTNotFound;
-                    return;
-                }
-            }
-        }
-
-        public Scan(SgmSOF0 sof0, SgmSOS sos, IEnumerable<SgmDHT> dht)
-        {
-            numComp = sos.numComp;
-            comps = new Component[numComp];
-            bitStrOff = sos.bitStrOff;
-
-            mcuWidth = sof0.mcuWidth;
-            mcuHeight = sof0.mcuHeight;
-
-            // associate components
-
-            upscale = new SgmSOF0.Upscale[numComp];
-
-            for (int i = 0; i < numComp; i++)
-            {
-                int sosCID = sos.compId[i];
-                int ind = Array.IndexOf(sof0.compId, sosCID);
-                if (ind == -1)
-                {
-                    status |= Status.ComponInfoNotFound;
-                    return;
-                }
-                comps[i].id = sosCID;
-                upscale[i] = sof0.upscale[ind];
-            }
-            mcuWidth = sof0.mcuWidth;
-            mcuHeight = sof0.mcuHeight;
-
-            LocateComponentTables(sos, dht);
-        }
-    }
     readonly List<Scan> scan = [];
 
     readonly static int[,] rowCol = ZigZagToRowCol();
@@ -197,11 +79,9 @@ public class Jpg : Image
 
         // ------------------------------------
 
+        /*
+
         DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
-
-        
-
-        
 
         // MCU decoding
 
@@ -340,6 +220,7 @@ public class Jpg : Image
 
                     mcuInd++;
                 }
+        */
 
         status |= Status.OK;
     }
@@ -541,9 +422,145 @@ public class Jpg : Image
         """;
     }
 }
+
+/// <summary>
+/// Stored in array where array index is comp id
+/// </summary>
+public struct Component
+{
+    // defined in frame header SOF0
+    // added in SOF0 Ctor
+
+    public byte samFactHor; // Hi
+    public byte samFactVer; // Vi
+    public byte quanTableInd; // Tqi
+    public int upscaleHor; // from subsampling; MCU / DU
+    public int upscaleVer;
+
+    // added in Scan Ctor only for scan comp
+
+    public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb; // from DHTs
+    public List<int>? dcValidCodeLength;
+    public KeyValuePair<ushort, Symb>[][]? acCodesToSymb;
+    public List<int>? acValidCodeLength;
+}
+
+class Scan
+{
+    enum Status
+    {
+        None = 0,
+        OK = 1,
+        DHTNotFound = 2,
+        ComponInfoNotFound = 4,
+    }
+    Status status;
+
+    readonly Component[] comp;
+    public readonly int[] compList;
+
+    /// <summary>
+    /// Represents one Data Unit (8x8) channel
+    /// </summary>
+    struct DataUnit
+    {
+        public int compId;
+        public short[] zigZag;
+        public short[,] table;
+    }
+    readonly DataUnit[] DUnits = [];
+
+    /// <summary>
+    /// Minimal Coded Unit
+    /// </summary>
+    struct MCU
+    {
+        public int row;
+        public int col;
+        public List<DataUnit> DUnits;
+    }
+    //readonly List<MCU> mcu;
+
+    readonly int numComp;
+    readonly int bitStrOff;
+    readonly int mcuWidth;
+    readonly int mcuHeight;
+
+    //readonly List<int> duSeq;
+
+    void AssignComponentTables(SgmSOS sos, IEnumerable<SgmDHT> dht)
+    {
+        var tableInd = sos.tableInd;
+        foreach(var ind in compList)
+        {
+            var dcInd = tableInd[ind].dc;
+            var acInd = tableInd[ind].ac;
+
+            var dcFound = false;
+            var acFound = false;
+            var ci = comp[ind];
+            foreach (var ht in dht)
+            {
+                if (ht.HasMatch(
+                    TblClass.DC,
+                    dcInd,
+                    out ci.dcCodesToSymb,
+                    out ci.dcValidCodeLength)) // CHECK IF A COPY RETURNS
+                {
+                    dcFound = true;
+                    break;
+                }
+            }
+            foreach (var ht in dht)
+            {
+                if (ht.HasMatch(
+                    TblClass.AC,
+                    acInd,
+                    out ci.acCodesToSymb,
+                    out ci.acValidCodeLength))
+                {
+                    acFound = true;
+                    break;
+                }
+            }
+            if (!dcFound || !acFound)
+            {
+                status |= Status.DHTNotFound;
+                return;
+            }
+        }
+    }
+
+    public Scan(SgmSOF0 sof0, SgmSOS sos, IEnumerable<SgmDHT> dht)
+    {
+        numComp = sos.numComp;
+        bitStrOff = sos.bitStrOff;
+
+        comp = sof0.comp;
+        mcuWidth = sof0.mcuWidth;
+        mcuHeight = sof0.mcuHeight;
+
+        // check comp integrity as a subset
+
+        compList = sos.compList;
+        foreach (var sInd in compList)
+            if (Array.IndexOf(sof0.compList, sInd) == -1)
+            {
+                status |= Status.ComponInfoNotFound;
+                return;
+            }
+
+        AssignComponentTables(sos, dht);
+    }
+}
+
 /// <summary>
 /// Start Of Frame (baseline DCT)
 /// </summary>
+/// <param name="comp">
+/// Sparse array for holding info about up to 8 components; </br>
+/// Array index is the component Id
+/// </param>
 public class SgmSOF0 : Segment
 {
     readonly byte samPrec; // P
@@ -551,18 +568,11 @@ public class SgmSOF0 : Segment
     public readonly ushort samPerLine; // X
     public readonly byte numComp; // Nf
 
-    public readonly byte[] compId; // Ci
-    readonly byte[] samFactHor; // Hi
-    readonly byte[] samFactVer; // Vi
-    readonly byte[] quanTableInd; // Tqi
+    public readonly Component[] comp;
+    public readonly int[] compList;
 
-    public struct Upscale
-    {
-        public int hor;
-        public int ver;
-    }
-    public readonly Upscale[] upscale; // DU to MCU
-    public int mcuWidth; // in DU
+    // in Data Units
+    public int mcuWidth;
     public int mcuHeight;
 
     /// <summary>
@@ -583,51 +593,49 @@ public class SgmSOF0 : Segment
         samPerLine = BinaryPrimitives.ReadUInt16BigEndian(new ReadOnlySpan<byte>(rawDat, rawOff + 3, 2));
         numComp = _data[5];
 
-        compId = new byte[numComp];
-        samFactHor = new byte[numComp];
-        samFactVer = new byte[numComp];
-        quanTableInd = new byte[numComp];
+        comp = new Component[8]; // sparse array, index is comp id
+        compList = new int[numComp];
 
-        int ind = 0;
+        int cnt = 0;
         for (int off = 0; off < numComp * 3; off += 3)
         {
-            compId[ind] = _data[6 + off];
+            int ind = _data[6 + off];
             byte samFact = _data[7 + off];
-            samFactHor[ind] = (byte)(samFact >> 4);
-            samFactVer[ind] = (byte)(samFact & 0x0F);
-            quanTableInd[ind] = _data[8 + off];
-            ind++;
+            comp[ind].samFactHor = (byte)(samFact >> 4);
+            comp[ind].samFactVer = (byte)(samFact & 0x0F);
+            comp[ind].quanTableInd = _data[8 + off];
+            compList[cnt++] = ind;
         }
+        
+        // find MCU size and upsampling 
 
-        // find MCU size and upsampling for comp Data Units
-
+        var samFactHor = comp.Select(c => c.samFactHor).ToArray();
+        var samFactVer = comp.Select(c => c.samFactHor).ToArray();
         int hMax = samFactHor.Max();
         int vMax = samFactVer.Max();
-
-        upscale = new Upscale[numComp];
-        for (int i = 0; i < numComp; i++)
-            upscale[i] = new Upscale
-            {
-                hor = hMax / samFactHor[i],
-                ver = vMax / samFactVer[i],
-            };
-
-        mcuWidth = hMax / samFactHor.Min();
-        mcuHeight = vMax / samFactVer.Min();
+        mcuWidth = hMax / Math.Max((byte)1, samFactHor.Min());
+        mcuHeight = vMax / Math.Max((byte)1, samFactVer.Min());
+        foreach(var ind in compList) {
+            comp[ind].upscaleHor = hMax / samFactHor[ind];
+            comp[ind].upscaleVer = vMax / samFactVer[ind];
+        }
     }
 
     protected override string ParsedData()
     {
         string compInfo = "";
-        for (int i = 0; i < numComp; i++)
+        foreach (var ind in compList)
+        {
+            var ci = comp[ind];
             compInfo +=
             $"""
-                   [{compId[i]}]
-                   s/factor hor: {samFactHor[i]}
-                   s/factor ver: {samFactVer[i]}
-                   quant table [{quanTableInd[i]}]
+                   [{ind}]
+                   subsampl. hor: {ci.samFactHor}
+                   subsampl. ver: {ci.samFactVer}
+                   quant table [{ci.quanTableInd}]
 
              """;
+        }
 
         return
         $"""
@@ -939,11 +947,15 @@ public class SgmDRI(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 /// </summary>
 public class SgmSOS : Segment
 {
-    public readonly byte numComp; // Ns
+    public struct TableInd
+    {
+        public byte dc; // Td
+        public byte ac; // Ta
+    }
+    public readonly TableInd[] tableInd; // array index is Ci
+    public readonly int[] compList; // Cis
 
-    public readonly byte[] compId; // Ci
-    public readonly byte[] dcTableInd; // Td
-    public readonly byte[] acTableInd; // Ta
+    public readonly byte numComp; // Ns
 
     readonly byte selBeg; // Ss
     readonly byte selEnd; // Se
@@ -957,19 +969,18 @@ public class SgmSOS : Segment
         status = (int)Status.OK;
 
         numComp = _data[0];
-        compId = new byte[numComp];
-        dcTableInd = new byte[numComp];
-        acTableInd = new byte[numComp];
+        tableInd = new TableInd[8];
+        compList = new int[numComp];
 
-        int ind = 0;
+        int cnt = 0;
         int paramLen = numComp * 2;
         for (int off = 0; off < paramLen; off += 2)
         {
-            compId[ind] = _data[1 + off];
+            int ind = _data[1 + off];
             byte dcAc = _data[2 + off];
-            dcTableInd[ind] = (byte)(dcAc >> 4);
-            acTableInd[ind] = (byte)(dcAc & 0x0F);
-            ind++;
+            tableInd[ind].dc = (byte)(dcAc >> 4);
+            tableInd[ind].ac = (byte)(dcAc & 0x0F);
+            compList[cnt++] = ind;
         }
 
         selBeg = _data[1 + paramLen];
@@ -984,14 +995,17 @@ public class SgmSOS : Segment
     protected override string ParsedData()
     {
         string compInfo = "";
-        for (int i = 0; i < numComp; i++)
+        foreach (var ind in compList)
+        {
+            var ti = tableInd[ind];
             compInfo +=
             $"""
-                   [{compId[i]}]
-                   DC table [{dcTableInd[i]}]
-                   AC table [{acTableInd[i]}]
+                   [{ind}]
+                   DC table [{ti.dc}]
+                   AC table [{ti.ac}]
 
              """;
+        }
 
         return
         $"""
