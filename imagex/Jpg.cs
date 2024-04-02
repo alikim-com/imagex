@@ -77,151 +77,6 @@ public class Jpg : Image
 
         scan.Add(new Scan(sof0, sos, dht));
 
-        // ------------------------------------
-
-        /*
-
-        DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
-
-        // MCU decoding
-
-        // end of scan data is defined by a next segment marker or EOI
-        eoiOff = _data.Offset + _data.Count;
-        var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
-        var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
-
-        var bstr = new BitStream(data.Array!, bitStrOff, endOff, true);
-
-        int mcuInd = 0;
-        for (int r = 0; r < mcuHeight; r++)
-            for (int c = 0; c < mcuWidth; c++)
-                foreach (var cmp in comps)
-                {
-                    DUnits[mcuInd] = new DataUnit
-                    {
-                        // row = r,
-                        // col = c,
-                        compId = cmp.id,
-                        zigZag = new short[64]
-                    };
-                    var zigZag = DUnits[mcuInd].zigZag;
-
-                    int zzInd = 0;
-
-                    // DC
-                    bool found = false;
-                    var dcCodesToSymb = cmp.dcCodesToSymb ?? [];
-                    foreach (var dcLen in cmp.dcValidCodeLength!)
-                    {
-                        if (!bstr.PeekBits(dcLen, out ushort code))
-                        {
-                            status |= Status.BitStreamOutOfBounds;
-                            return;
-                        }
-                        var subArrInd = dcLen - 1; // zero-index
-                        var ind = Array.FindIndex(dcCodesToSymb[subArrInd], kv => kv.Key == code);
-                        if (ind == -1) continue;
-
-                        found = true;
-                        bstr.FwdBits(dcLen);
-                        var symb = dcCodesToSymb[subArrInd][ind].Value;
-                        var valBitlen = symb.valBitlen;
-                        short dcVal = 0;
-                        // valBitlen == 0 -> dcVal == 0 [code:0/0]
-                        if (valBitlen != 0 && !bstr.GetDCTValue(valBitlen, out dcVal))
-                        {
-                            status |= Status.BitStreamOutOfBounds;
-                            return;
-                        }
-                        zigZag[zzInd] = dcVal;
-                        var codeBin = Convert.ToString(code, 2).PadLeft(dcLen, '0');
-                        Console.WriteLine($"---------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
-                        break;
-                    }
-                    if (!found)
-                    {
-                        Console.WriteLine("---- DC code not found ----");
-                        status |= Status.HCodeNotFound;
-                        return;
-                    }
-
-                    // AC
-                    found = false;
-                    var acCodesToSymb = cmp.acCodesToSymb ?? [];
-                    while (zzInd < 64)
-                    {
-                        foreach (var acLen in cmp.acValidCodeLength!)
-                        {
-                            if (!bstr.PeekBits(acLen, out ushort code))
-                            {
-                                status |= Status.BitStreamOutOfBounds;
-                                return;
-                            }
-                            var subArrInd = acLen - 1; // zero-index
-                            var ind = Array.FindIndex(acCodesToSymb[subArrInd], kv => kv.Key == code);
-                            if (ind == -1) continue;
-
-                            found = true;
-                            bstr.FwdBits(acLen);
-                            var symb = acCodesToSymb[subArrInd][ind].Value;
-                            var valBitlen = symb.valBitlen;
-                            var numZeroes = symb.numZeroes;
-                            if (valBitlen == 0)
-                            {
-                                if (numZeroes == 0) // end of mcu
-                                {
-                                    zzInd = 64;
-                                    break;
-                                }
-                                if (numZeroes == 15) // 16 zeros ------------------------- check if wiorks
-                                {
-                                    zzInd += 16;
-                                    break;
-                                }
-                                Console.WriteLine($"UnknownACSymbol {code}:{numZeroes:X}/{valBitlen:X}");
-                                status |= Status.UnknownSymbol;
-                                return;
-                            }
-                            if (!bstr.GetDCTValue(valBitlen, out short acVal))
-                            {
-                                status |= Status.BitStreamOutOfBounds;
-                                return;
-                            }
-                            zzInd += numZeroes + 1;
-                            if (zzInd < 64) zigZag[zzInd] = acVal;
-                            var codeBin = Convert.ToString(code, 2).PadLeft(acLen, '0');
-                            Console.WriteLine($"------------------- {codeBin}:{numZeroes:X}/{valBitlen:X} {acVal}");
-                            break;
-                        }
-                        if (!found)
-                        {
-                            Console.WriteLine("---- AC code not found ----");
-                            status |= Status.HCodeNotFound;
-                            return;
-                        }
-                    }
-
-                    var table = DUnits[mcuInd].table = new short[8, 8];
-                    for (int i = 0; i < 64; i++)
-                    {
-                        int row = rowCol[i, 0];
-                        int col = rowCol[i, 1];
-                        table[row, col] = zigZag[i];
-                    }
-                    string tInfo = "";
-                    for (int k = 0; k < 8; k++)
-                    {
-                        tInfo += "     ";
-                        for (int j = 0; j < 8; j++) tInfo += table[k, j].ToString().PadLeft(4, ' ');
-                        tInfo += "\n";
-                    }
-                    // Console.WriteLine(tInfo);
-
-
-                    mcuInd++;
-                }
-        */
-
         status |= Status.OK;
     }
 
@@ -491,21 +346,20 @@ class Scan
     void AssignComponentTables(SgmSOS sos, IEnumerable<SgmDHT> dht)
     {
         var tableInd = sos.tableInd;
-        foreach(var ind in compList)
+        foreach (var ind in compList)
         {
             var dcInd = tableInd[ind].dc;
             var acInd = tableInd[ind].ac;
 
             var dcFound = false;
             var acFound = false;
-            var ci = comp[ind];
             foreach (var ht in dht)
             {
                 if (ht.HasMatch(
                     TblClass.DC,
                     dcInd,
-                    out ci.dcCodesToSymb,
-                    out ci.dcValidCodeLength)) // CHECK IF A COPY RETURNS
+                    out comp[ind].dcCodesToSymb,
+                    out comp[ind].dcValidCodeLength))
                 {
                     dcFound = true;
                     break;
@@ -516,8 +370,8 @@ class Scan
                 if (ht.HasMatch(
                     TblClass.AC,
                     acInd,
-                    out ci.acCodesToSymb,
-                    out ci.acValidCodeLength))
+                    out comp[ind].acCodesToSymb,
+                    out comp[ind].acValidCodeLength))
                 {
                     acFound = true;
                     break;
@@ -529,6 +383,157 @@ class Scan
                 return;
             }
         }
+    }
+
+    void DecodeDataUnits()
+    {
+        /*
+
+DUnits = new DataUnit[mcuWidth * mcuHeight * numComp];
+
+// MCU decoding
+
+// end of scan data is defined by a next segment marker or EOI
+eoiOff = _data.Offset + _data.Count;
+var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
+var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
+
+var bstr = new BitStream(data.Array!, bitStrOff, endOff, true);
+
+int mcuInd = 0;
+for (int r = 0; r < mcuHeight; r++)
+    for (int c = 0; c < mcuWidth; c++)
+        foreach (var cmp in comps)
+        {
+            DUnits[mcuInd] = new DataUnit
+            {
+                // row = r,
+                // col = c,
+                compId = cmp.id,
+                zigZag = new short[64]
+            };
+            var zigZag = DUnits[mcuInd].zigZag;
+
+            int zzInd = 0;
+
+            // DC
+            bool found = false;
+            var dcCodesToSymb = cmp.dcCodesToSymb ?? [];
+            foreach (var dcLen in cmp.dcValidCodeLength!)
+            {
+                if (!bstr.PeekBits(dcLen, out ushort code))
+                {
+                    status |= Status.BitStreamOutOfBounds;
+                    return;
+                }
+                var subArrInd = dcLen - 1; // zero-index
+                var ind = Array.FindIndex(dcCodesToSymb[subArrInd], kv => kv.Key == code);
+                if (ind == -1) continue;
+
+                found = true;
+                bstr.FwdBits(dcLen);
+                var symb = dcCodesToSymb[subArrInd][ind].Value;
+                var valBitlen = symb.valBitlen;
+                short dcVal = 0;
+                // valBitlen == 0 -> dcVal == 0 [code:0/0]
+                if (valBitlen != 0 && !bstr.GetDCTValue(valBitlen, out dcVal))
+                {
+                    status |= Status.BitStreamOutOfBounds;
+                    return;
+                }
+                zigZag[zzInd] = dcVal;
+                var codeBin = Convert.ToString(code, 2).PadLeft(dcLen, '0');
+                Console.WriteLine($"---------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
+                break;
+            }
+            if (!found)
+            {
+                Console.WriteLine("---- DC code not found ----");
+                status |= Status.HCodeNotFound;
+                return;
+            }
+
+            // AC
+            found = false;
+            var acCodesToSymb = cmp.acCodesToSymb ?? [];
+            while (zzInd < 64)
+            {
+                foreach (var acLen in cmp.acValidCodeLength!)
+                {
+                    if (!bstr.PeekBits(acLen, out ushort code))
+                    {
+                        status |= Status.BitStreamOutOfBounds;
+                        return;
+                    }
+                    var subArrInd = acLen - 1; // zero-index
+                    var ind = Array.FindIndex(acCodesToSymb[subArrInd], kv => kv.Key == code);
+                    if (ind == -1) continue;
+
+                    found = true;
+                    bstr.FwdBits(acLen);
+                    var symb = acCodesToSymb[subArrInd][ind].Value;
+                    var valBitlen = symb.valBitlen;
+                    var numZeroes = symb.numZeroes;
+                    if (valBitlen == 0)
+                    {
+                        if (numZeroes == 0) // end of mcu
+                        {
+                            zzInd = 64;
+                            break;
+                        }
+                        if (numZeroes == 15) // 16 zeros ------------------------- check if wiorks
+                        {
+                            zzInd += 16;
+                            break;
+                        }
+                        Console.WriteLine($"UnknownACSymbol {code}:{numZeroes:X}/{valBitlen:X}");
+                        status |= Status.UnknownSymbol;
+                        return;
+                    }
+                    if (!bstr.GetDCTValue(valBitlen, out short acVal))
+                    {
+                        status |= Status.BitStreamOutOfBounds;
+                        return;
+                    }
+                    zzInd += numZeroes + 1;
+                    if (zzInd < 64) zigZag[zzInd] = acVal;
+                    var codeBin = Convert.ToString(code, 2).PadLeft(acLen, '0');
+                    Console.WriteLine($"------------------- {codeBin}:{numZeroes:X}/{valBitlen:X} {acVal}");
+                    break;
+                }
+                if (!found)
+                {
+                    Console.WriteLine("---- AC code not found ----");
+                    status |= Status.HCodeNotFound;
+                    return;
+                }
+            }
+
+            var table = DUnits[mcuInd].table = new short[8, 8];
+            for (int i = 0; i < 64; i++)
+            {
+                int row = rowCol[i, 0];
+                int col = rowCol[i, 1];
+                table[row, col] = zigZag[i];
+            }
+            string tInfo = "";
+            for (int k = 0; k < 8; k++)
+            {
+                tInfo += "     ";
+                for (int j = 0; j < 8; j++) tInfo += table[k, j].ToString().PadLeft(4, ' ');
+                tInfo += "\n";
+            }
+            // Console.WriteLine(tInfo);
+
+
+            mcuInd++;
+        }
+*/
+    }
+
+    void AssembleMCUs()
+    {
+
     }
 
     public Scan(SgmSOF0 sof0, SgmSOS sos, IEnumerable<SgmDHT> dht)
@@ -551,6 +556,10 @@ class Scan
             }
 
         AssignComponentTables(sos, dht);
+
+        DecodeDataUnits();
+
+        AssembleMCUs();
     }
 }
 
@@ -560,6 +569,10 @@ class Scan
 /// <param name="comp">
 /// Sparse array for holding info about up to 8 components; </br>
 /// Array index is the component Id
+/// </param>
+/// <param name="duSeq">
+/// Sequence or reading DUs for one MCU; </br> 
+/// For quad subsampling 2:1:1 it's [1,1,1,1, 2, 3] -> [Y0,Y1,Y2,Y3, Cb0, Cr0]
 /// </param>
 public class SgmSOF0 : Segment
 {
@@ -574,6 +587,8 @@ public class SgmSOF0 : Segment
     // in Data Units
     public int mcuWidth;
     public int mcuHeight;
+
+    public int[] duSeq;
 
     /// <summary>
     /// Baseline JPEG - STORE FLAG IN JPEG CLASS
@@ -606,19 +621,37 @@ public class SgmSOF0 : Segment
             comp[ind].quanTableInd = _data[8 + off];
             compList[cnt++] = ind;
         }
-        
+
         // find MCU size and upsampling 
 
-        var samFactHor = comp.Select(c => c.samFactHor).ToArray();
-        var samFactVer = comp.Select(c => c.samFactHor).ToArray();
-        int hMax = samFactHor.Max();
-        int vMax = samFactVer.Max();
-        mcuWidth = hMax / Math.Max((byte)1, samFactHor.Min());
-        mcuHeight = vMax / Math.Max((byte)1, samFactVer.Min());
-        foreach(var ind in compList) {
-            comp[ind].upscaleHor = hMax / samFactHor[ind];
-            comp[ind].upscaleVer = vMax / samFactVer[ind];
+        int hMin, vMin, hMax, vMax;
+        hMin = vMin = int.MaxValue;
+        hMax = vMax = int.MinValue;
+        foreach (var ind in compList)
+        {
+            var h = comp[ind].samFactHor;
+            var v = comp[ind].samFactVer;
+            if (h < hMin) hMin = h;
+            if (h > hMax) hMax = h;
+            if (v < vMin) vMin = v;
+            if (v > vMax) vMax = v;
+
         }
+        mcuWidth = hMax / hMin;
+        mcuHeight = vMax / vMin;
+
+        // upscale & reading sequence
+
+        List<int> seq = [];
+        var mcuArea = mcuWidth * mcuHeight;
+        foreach (var ind in compList)
+        {
+            var uh = comp[ind].upscaleHor = hMax / comp[ind].samFactHor;
+            var uv = comp[ind].upscaleVer = vMax / comp[ind].samFactVer;
+            var rep = mcuArea / (uh * uv);
+            for (int i = 0; i < rep; i++) seq.Add(ind);
+        }
+        duSeq = [.. seq];
     }
 
     protected override string ParsedData()
