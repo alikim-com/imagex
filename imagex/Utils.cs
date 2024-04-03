@@ -5,6 +5,13 @@ using System.Numerics;
 
 namespace utils;
 
+public class Size
+{
+    public int width;
+    public int height;
+
+}
+
 public class BitStream
 {
     readonly byte[] data;
