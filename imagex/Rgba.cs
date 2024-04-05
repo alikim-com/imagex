@@ -21,7 +21,10 @@ public class Rgba(
             Height.BytesLeftToRight(),
             pixelData
         ];
-        Utils.WriteFileBytes(path, fname + ".rgba", rgbaData);
+        fname += ".rgba";
+        Console.Write($"writing to '{Path.Combine(path, fname)}'... ");
+        Utils.WriteFileBytes(path, fname, rgbaData);
+        Console.WriteLine("OK");
     }
 
     public enum BlendMode

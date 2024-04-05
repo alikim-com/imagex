@@ -79,6 +79,12 @@ public class Jpg : Image
 
         scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht));
 
+        // visualise scan for testing purposes
+        var path = "../../../testImages";
+        var fname = "baloon";
+        var rgba = scan[^1].ToRGBA();
+        rgba.ToFile(path, fname);
+
         status |= Status.OK;
     }
 
@@ -324,9 +330,13 @@ class Scan
     /// </summary>
     struct DataUnit
     {
-        public int compId;
+        public int compId; // [1,1,1,1, 2,2, 3]
         public short[] zigZag;
         public short[,] table;
+
+        public int chan; // [0,0,0,0, 1,1, 2]
+        public int pixTop;
+        public int pixLeft;
     }
     readonly DataUnit[] DUnits = [];
 
@@ -335,6 +345,8 @@ class Scan
     /// </summary>
     struct MCU
     {
+        public int pixTop;
+        public int pixLeft;
         public ArraySegment<DataUnit> DUnits;
     }
     readonly MCU[,] MCUs = new MCU[0, 0];
@@ -533,17 +545,46 @@ class Scan
     {
         MCUs = new MCU[heightInMcu, widthInMcu];
 
+        var mcuWidth = mcuWidthInDu * 8;
+        var mcuHeight = mcuHeightInDu * 8;
+
         int duOff = 0;
         int seqLen = duSeq.Length;
         for (int r = 0; r < heightInMcu; r++)
+        {
+            var pixTop = r * mcuHeight;
             for (int c = 0; c < widthInMcu; c++)
             {
+                var arrSgm = new ArraySegment<DataUnit>(DUnits, duOff, seqLen);
                 MCUs[r, c] = new MCU
                 {
-                    DUnits = new ArraySegment<DataUnit>(DUnits, duOff, seqLen),
+                    pixTop = pixTop,
+                    pixLeft = c * mcuWidth,
+                    DUnits = arrSgm,
                 };
+
+                // position DUs inside MCU, rowMajor
+                var compId = -1;
+                var chan = -1;
+                var rnr = 0;
+                for (int k = 0; k < arrSgm.Count; k++)
+                {
+                    if (compId != duSeq[k])
+                    {
+                        chan++;
+                        rnr = 0;
+                        compId = duSeq[k];
+                    }
+                    var off = duOff + k;
+                    DUnits[off].chan = chan;
+                    DUnits[off].pixTop = 8 * (rnr / mcuWidthInDu);
+                    DUnits[off].pixLeft = 8 * (rnr % mcuWidthInDu);
+                    rnr++;
+                }
+
                 duOff += seqLen;
             }
+        }
         return true;
     }
 
@@ -576,43 +617,44 @@ class Scan
         AssembleMCUs(out MCUs);
     }
 
-    public Rgba ToRGBA() // OFFLOAD MCU PIX COORDS TO MCU, add du row,col to du as mutable struct, assign in mcu
+    public Rgba ToRGBA()
     {
         var mcuWidthInPix = mcuWidthInDu * 8;
         var mcuHeightInPix = mcuHeightInDu * 8;
-        var width = widthInMcu * mcuWidthInPix;
-        var height = heightInMcu * mcuHeightInPix;
-        var pixelData = new byte[width * height * 4];
+        var scanWidth = widthInMcu * mcuWidthInPix;
+        var scanHeight = heightInMcu * mcuHeightInPix;
+        var pdWidth = scanWidth * 4; // RGBA
+        var pdHeight = scanHeight;
+        var pixelData = new byte[pdWidth * pdHeight];
 
-        for (int r = 0; r < heightInMcu; r++) {
-            var rowInPix = r * mcuHeightInPix;
+        for (int r = 0; r < heightInMcu; r++)
             for (int c = 0; c < widthInMcu; c++)
             {
-                var arrSgm = MCUs[r, c].DUnits;
-                var compId = -1;
-                var chan = -1;
-                var duRow = 0;
-                var duCol = 0;
+                var mcu = MCUs[r, c];
+                var arrSgm = mcu.DUnits;
+                var rOff = mcu.pixTop;
+                var cOff = mcu.pixLeft * 4; // RGBA
                 for (int k = 0; k < arrSgm.Count; k++)
                 {
-                    if(compId != duSeq[k])
-                    {
-
-                        chan++;
-                        compId = duSeq[k];
-                    }
+                    var du = arrSgm[k];
+                    var rOff2 = rOff + du.pixTop;
+                    var cOff2 = cOff + du.pixLeft * 4;
+                    var chan = du.chan; // chan == 3 is A should be 0xFF for YCbCr
                     for (int tr = 0; tr < 8; tr++)
+                    {
+                        var rOff3 = rOff2 + tr;
+                        var pdInd = rOff3 * pdWidth;
                         for (int tc = 0; tc < 8; tc++)
                         {
-                            var ampl = (byte)Math.Abs(arrSgm[k].table[tr, tc]);
-                            pixelData[0] = ampl;
+                            var cOff3 = cOff2 + tc * 4 + chan;
+                            var ampl = (byte)Math.Abs(du.table[tr, tc]);
+                            pixelData[pdInd + cOff3] = ampl;
                         }
-
+                    }
                 }
             }
-        }
 
-        return new Rgba(width, height, pixelData);
+        return new Rgba(scanWidth, scanHeight, pixelData);
     }
 }
 

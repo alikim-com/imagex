@@ -162,6 +162,8 @@ internal class Program
 
         var images = Jpg.FromFile(path, fname);
         foreach (var jpg in images) Console.WriteLine(jpg);
+
+
     }
 
     static void TestCRC32()

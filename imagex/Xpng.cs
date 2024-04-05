@@ -30,7 +30,10 @@ public class Xpng(
             [(byte)numChan, (byte)bitDepth, 0, 0],
             pixelData
         ];
-        Utils.WriteFileBytes(path, fname + ".xdat", xData);
+        fname += ".xdat";
+        Console.Write($"writing to '{Path.Combine(path, fname)}'... ");
+        Utils.WriteFileBytes(path, fname, xData);
+        Console.WriteLine("OK");
     }
 
     public Rgba ToRgba()

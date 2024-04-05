@@ -116,27 +116,27 @@ public class BitStream
     /// </summary>
     bool RefillSkip(int vbitLen)
     {
-        Console.WriteLine("------- REFILLSKIP");
+        //Console.WriteLine("------- REFILLSKIP");
 
         if (bytesLoaded == arrLen) return false;
 
         // refill cont
         ulong payloadRefill = 0; // must be 64 bit
         var availLen = 64 - payload;
-        Console.WriteLine($"payload: {payload}");
+        //Console.WriteLine($"payload: {payload}");
         var refillBytesMax = availLen / 8;
         int refCnt = 0;
         int i = bytesLoaded;
         do
         {
             byte b = data[off + i];
-            Console.WriteLine($"--- {b:X2}");
+           // Console.WriteLine($"--- {b:X2}");
             payloadRefill <<= 8;
             payloadRefill |= b;
             refCnt++;
             i = b != 0xFF ? i + 1 : i + 2;
 
-            if (b == 0xFF) Console.WriteLine("------- FF00");
+            //if (b == 0xFF) Console.WriteLine("------- FF00");
 
         } while (refCnt < refillBytesMax && i < arrLen);
         bytesLoaded = i;
