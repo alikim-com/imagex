@@ -81,7 +81,7 @@ public class Jpg : Image
 
         // visualise scan for testing purposes
         var path = "../../../testImages";
-        var fname = "baloon";
+        var fname = "q_50.jpg";
         var rgba = scan[^1].ToRGBA();
         rgba.ToFile(path, fname);
 
@@ -411,6 +411,8 @@ class Scan
 
         int duCnt = 0;
 
+        short[] dcDiff = new short[8];
+
         for (int m = 0; m < areaInMcu; m++)
             foreach (var ind in duSeq)
             {
@@ -448,7 +450,7 @@ class Scan
                         status |= Status.BitStreamOutOfBounds;
                         return false;
                     }
-                    zigZag[zzInd] = dcVal;
+                    dcDiff[ind] = zigZag[zzInd] = (short)(dcVal + dcDiff[ind]);
                     // var codeBin = Convert.ToString(code, 2).PadLeft(dcLen, '0');
                     // Console.WriteLine($"---------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
                     break;
@@ -524,16 +526,7 @@ class Scan
                     table[row, col] = zigZag[i];
                 }
 
-                /*
-                string tInfo = "";
-                for (int k = 0; k < 8; k++)
-                {
-                    tInfo += "     ";
-                    for (int j = 0; j < 8; j++) tInfo += table[k, j].ToString().PadLeft(4, ' ');
-                    tInfo += "\n";
-                }
-                Console.WriteLine(tInfo);
-                */
+                //Console.WriteLine(Utils.TableToStr(table, 4, 5));
 
                 duCnt++;
             }
@@ -637,18 +630,27 @@ class Scan
                 for (int k = 0; k < arrSgm.Count; k++)
                 {
                     var du = arrSgm[k];
+                    var compId = du.compId;
+                    var upscaleHor = comp[compId].upscaleHor;
+                    var upscaleVer = comp[compId].upscaleVer;
+                    var duScaled = upscaleHor == 1 && upscaleVer == 1 ? 
+                        du.table : Utils.ScaleArray(du.table, upscaleHor, upscaleVer);
+                    
                     var rOff2 = rOff + du.pixTop;
-                    var cOff2 = cOff + du.pixLeft * 4;
-                    var chan = du.chan; // chan == 3 is A should be 0xFF for YCbCr
-                    for (int tr = 0; tr < 8; tr++)
+                    var cOff2 = cOff + du.pixLeft * 4; // RGBA
+                    var chan = du.chan;
+
+                    var upRows = upscaleVer * 8;
+                    var upCols = upscaleHor * 8;
+                    for (int tr = 0; tr < upRows; tr++)
                     {
                         var rOff3 = rOff2 + tr;
-                        var pdInd = rOff3 * pdWidth;
-                        for (int tc = 0; tc < 8; tc++)
+                        var pdRnr = rOff3 * pdWidth;
+                        for (int tc = 0; tc < upCols; tc++)
                         {
                             var cOff3 = cOff2 + tc * 4 + chan;
-                            var ampl = (byte)Math.Abs(du.table[tr, tc]);
-                            pixelData[pdInd + cOff3] = ampl;
+                            var ampl = (byte)Math.Abs(duScaled[tr, tc]);
+                            pixelData[pdRnr + cOff3] = ampl;
                         }
                     }
                 }

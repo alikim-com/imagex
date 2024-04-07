@@ -315,6 +315,46 @@ public static class IntExtensions
 
 public class Utils
 {
+    public static T[,] ScaleArray<T>(T[,] array, int scaleX, int scaleY)
+    {
+        int rows = array.GetLength(0);
+        int cols = array.GetLength(1);
+
+        int newRows = rows * scaleY;
+        int newCols = cols * scaleX;
+
+        T[,] newArray = new T[newRows, newCols];
+
+        for (int r = 0; r < newRows; r++)
+        {
+            var mapR = r / scaleY;
+            for (int c = 0; c < newCols; c++)
+                newArray[r, c] = array[mapR, c / scaleX];
+        }
+
+        return newArray;
+    }
+
+    public static string TableToStr<T>(T[,] table, int space = 4, int margin = 0)
+    {
+        string marStr = new(' ', margin);
+        string tInfo = "";
+        var height = table.GetLength(0);
+        var width = table.GetLength(1);
+        for (int k = 0; k < height; k++)
+        {
+            tInfo += marStr;
+            for (int j = 0; j < width; j++)
+            {
+                T tkj = table[k, j];
+                if (tkj == null) tInfo += "null";
+                else tInfo += tkj.ToString()!.PadLeft(space, ' ');
+            }
+            tInfo += "\n";
+        }
+        return tInfo;
+    }
+
     static public void PrintBytes(byte[] bytes, string fmt = " ")
     {
         string hex = BitConverter.ToString(bytes);
