@@ -135,7 +135,7 @@ internal class Program
                 var images = Jpg.FromFile(path, fname);
                 var lst = images[0].GetSegments(Segment.SgmType.DQT);
                 if (lst[0] is SgmDQT dqt)
-                    if (dqt.GetQTableByIndex(0, out ushort[,]? qTable) && qTable != null)
+                    if (dqt.HasMatch(0, out ushort[,]? qTable) && qTable != null)
                     {
                         plotStr += $"({i},{qTable[row, col] / 1.03}),";
                         string qtInfo = "";

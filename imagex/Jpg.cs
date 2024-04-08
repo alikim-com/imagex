@@ -77,11 +77,13 @@ public class Jpg : Image
         var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
         var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
 
-        scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht));
+        var dqt = GetSegments(SgmType.DQT).Select(sgm => (SgmDQT)sgm);
+
+        scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
 
         // visualise scan for testing purposes
         var path = "../../../testImages";
-        var fname = "q_50.jpg";
+        var fname = "baloon.jpg"; // "q_50.jpg"; // "baloon.jpg";
         var rgba = scan[^1].ToRGBA();
         rgba.ToFile(path, fname);
 
@@ -319,6 +321,7 @@ class Scan
         BitStreamOutOfBounds = 8,
         HCodeNotFound = 16,
         UnknownSymbol = 32,
+        DQTNotFound = 64,
     }
     Status status;
 
@@ -581,7 +584,47 @@ class Scan
         return true;
     }
 
-    public Scan(byte[] _data, int _begOff, int _endOff, SgmSOF0 sof0, SgmSOS sos, IEnumerable<SgmDHT> dht)
+    void DeQuantise(IEnumerable<SgmDQT> dqt)
+    {
+        var qTables = new Dictionary<int, ushort[,]>();
+        foreach(var cInd in compList)
+        {
+            bool found = false;
+            var qInd = comp[cInd].quanTableInd;
+            foreach(var qt in dqt)
+            {
+                if(qt.HasMatch(qInd, out ushort[,]? qTable))
+                {
+                    found = true;
+                    qTables.Add(cInd, qTable!);
+                    break;
+                }
+            }
+            if(!found)
+            {
+                status |= Status.DQTNotFound;
+                return;
+            }
+        }
+
+        foreach(var du in DUnits)
+        {
+            var qt = qTables[du.compId];
+
+            for (int r = 0; r < 8; r++)
+                for (int c = 0; c < 8; c++)
+                    du.table[r, c] *= (short)qt[r, c];
+        }
+    }
+
+    public Scan(
+        byte[] _data, 
+        int _begOff, 
+        int _endOff, 
+        SgmSOF0 sof0, 
+        SgmSOS sos, 
+        IEnumerable<SgmDHT> dht,
+        IEnumerable<SgmDQT> dqt)
     {
         numComp = sos.numComp;
 
@@ -608,6 +651,8 @@ class Scan
         DecodeDataUnits(_data, _begOff, _endOff, out DUnits);
 
         AssembleMCUs(out MCUs);
+
+        DeQuantise(dqt);
     }
 
     public Rgba ToRGBA()
@@ -1018,7 +1063,7 @@ public class SgmDQT : Segment
         }
     }
 
-    public bool GetQTableByIndex(byte ind, out ushort[,]? qTable)
+    public bool HasMatch(byte ind, out ushort[,]? qTable)
     {
         int k = quanTableInd.IndexOf(ind);
         bool OK = k != -1;
