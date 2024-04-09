@@ -83,7 +83,7 @@ public class Jpg : Image
 
         // visualise scan for testing purposes
         var path = "../../../testImages";
-        var fname = "baloon.jpg"; // "q_50.jpg"; // "baloon.jpg";
+        var fname = "q_50.jpg"; // "q_50.jpg"; // "baloon.jpg";
         var rgba = scan[^1].ToRGBA();
         rgba.ToFile(path, fname);
 
@@ -336,6 +336,7 @@ class Scan
         public int compId; // [1,1,1,1, 2,2, 3]
         public short[] zigZag;
         public short[,] table;
+        public short[,] pixData;
 
         public int chan; // [0,0,0,0, 1,1, 2]
         public int pixTop;
@@ -584,6 +585,41 @@ class Scan
         return true;
     }
 
+    void InverseDCT()
+    {
+        double PI16 = Math.PI / 16;
+        double C0 = 1 / Math.Sqrt(2);
+
+        for(int u = 0; u < DUnits.Length; u++)
+        {
+            var table = DUnits[u].table;
+            var pixData = DUnits[u].pixData = new short[8, 8];
+
+            for (int r = 0; r < 8; r++)
+                for (int c = 0; c < 8; c++)
+                {
+                    double sum = 0;
+
+                    for (int rf = 0; rf < 8; rf++)
+                    {
+                        double crf = 1;
+                        if (crf == 0) crf = C0;
+
+                        for (int cf = 0; cf < 8; cf++)
+                        {
+                            double ccf = 1;
+                            if (ccf == 0) ccf = C0;
+                            sum += crf * ccf * table[rf, cf] *
+                                Math.Cos((2 * r + 1) * rf * PI16) *
+                                Math.Cos((2 * c + 1) * cf * PI16);
+                        }
+                    }
+
+                    pixData[r, c] = (short)(sum / 4);
+                }
+        }
+    }
+
     void DeQuantise(IEnumerable<SgmDQT> dqt)
     {
         var qTables = new Dictionary<int, ushort[,]>();
@@ -653,6 +689,8 @@ class Scan
         AssembleMCUs(out MCUs);
 
         DeQuantise(dqt);
+
+        InverseDCT();
     }
 
     public Rgba ToRGBA()
@@ -678,9 +716,10 @@ class Scan
                     var compId = du.compId;
                     var upscaleHor = comp[compId].upscaleHor;
                     var upscaleVer = comp[compId].upscaleVer;
-                    var duScaled = upscaleHor == 1 && upscaleVer == 1 ? 
-                        du.table : Utils.ScaleArray(du.table, upscaleHor, upscaleVer);
-                    
+                    var duScaled = upscaleHor == 1 && upscaleVer == 1 ?
+                        du.pixData : Utils.ScaleArray(du.pixData, upscaleHor, upscaleVer);
+                    // du.table : Utils.ScaleArray(du.table, upscaleHor, upscaleVer);
+
                     var rOff2 = rOff + du.pixTop;
                     var cOff2 = cOff + du.pixLeft * 4; // RGBA
                     var chan = du.chan;
