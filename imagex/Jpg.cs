@@ -81,11 +81,13 @@ public class Jpg : Image
 
         scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
 
+        
         // visualise scan for testing purposes
         var path = "../../../testImages";
         var fname = "q_50.jpg"; // "q_50.jpg"; // "baloon.jpg";
         var rgba = scan[^1].ToRGBA();
         rgba.ToFile(path, fname);
+        
 
         status |= Status.OK;
     }
@@ -530,7 +532,7 @@ class Scan
                     table[row, col] = zigZag[i];
                 }
 
-                //Console.WriteLine(Utils.TableToStr(table, 4, 5));
+                Console.WriteLine(Utils.TableToStr(table, 4, 5));
 
                 duCnt++;
             }
@@ -600,18 +602,19 @@ class Scan
                 {
                     double sum = 0;
 
-                    for (int rf = 0; rf < 8; rf++)
+                    for (int _r = 0; _r < 8; _r++)
                     {
-                        double crf = 1;
-                        if (crf == 0) crf = C0;
+                        double cr = 1;
+                        if (_r == 0) cr = C0;
 
-                        for (int cf = 0; cf < 8; cf++)
+                        for (int _c = 0; _c < 8; _c++)
                         {
-                            double ccf = 1;
-                            if (ccf == 0) ccf = C0;
-                            sum += crf * ccf * table[rf, cf] *
-                                Math.Cos((2 * r + 1) * rf * PI16) *
-                                Math.Cos((2 * c + 1) * cf * PI16);
+                            double cc = 1;
+                            if (_c == 0) cc = C0;
+
+                            sum += cr * cc * table[_r, _c] *
+                                Math.Cos((2 * r + 1) * _r * PI16) *
+                                Math.Cos((2 * c + 1) * _c * PI16);
                         }
                     }
 
@@ -645,6 +648,7 @@ class Scan
 
         foreach(var du in DUnits)
         {
+
             var qt = qTables[du.compId];
 
             for (int r = 0; r < 8; r++)
@@ -974,6 +978,8 @@ public class SgmDHT : Segment
 
             qtOff = vOff;
         }
+
+        Console.WriteLine(ParsedData());
     }
 
     protected override string ParsedData()
