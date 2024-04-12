@@ -84,7 +84,7 @@ public class Jpg : Image
         
         // visualise scan for testing purposes
         var path = "../../../testImages";
-        var fname = "q_50.jpg"; // "q_50.jpg"; // "baloon.jpg";
+        var fname = "q_50.jpg"; // "fourier_01.jpg" "q_50.jpg" "baloon.jpg";
         var rgba = scan[^1].ToRGBA();
         rgba.ToFile(path, fname);
         
@@ -532,7 +532,7 @@ class Scan
                     table[row, col] = zigZag[i];
                 }
 
-                Console.WriteLine(Utils.TableToStr(table, 4, 5));
+                //Console.WriteLine(Utils.TableToStr(table, 4, 5));
 
                 duCnt++;
             }
@@ -737,7 +737,7 @@ class Scan
                         for (int tc = 0; tc < upCols; tc++)
                         {
                             var cOff3 = cOff2 + tc * 4 + chan;
-                            var ampl = (byte)Math.Abs(duScaled[tr, tc]);
+                            var ampl = (byte)duScaled[tr, tc]; // ampl < 128 ? ampl : ~ampl + 1
                             pixelData[pdRnr + cOff3] = ampl;
                         }
                     }
