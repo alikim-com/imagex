@@ -979,7 +979,7 @@ public class SgmDHT : Segment
             qtOff = vOff;
         }
 
-        Console.WriteLine(ParsedData());
+       // Console.WriteLine(ParsedData());
     }
 
     protected override string ParsedData()

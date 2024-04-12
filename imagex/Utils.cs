@@ -41,6 +41,7 @@ public class BitStream
             }
             cont <<= 64 - bytesLoaded * 8;
         }
+        payload = bytesLoaded * 8;
     }
 
     /// <summary>
@@ -61,8 +62,8 @@ public class BitStream
 
         } while (ldCnt < 8 && i < arrLen);
         bytesLoaded = i;
-
-        cont <<= 64 - ldCnt * 8;
+        payload = ldCnt * 8;
+        cont <<= 64 - payload;
     }
 
     /// <summary>
@@ -81,8 +82,6 @@ public class BitStream
 
         skip = _skip;
         if (skip) InitLoadSkip(); else InitLoad();
-
-        payload = bytesLoaded * 8;
 
         Refill = skip ? RefillSkip : RefillAny;
     }
@@ -125,7 +124,7 @@ public class BitStream
         var availLen = 64 - payload;
         //Console.WriteLine($"payload: {payload}");
         var refillBytesMax = availLen / 8;
-        int refCnt = 0;
+        int refillBytes = 0;
         int i = bytesLoaded;
         do
         {
@@ -133,15 +132,15 @@ public class BitStream
            // Console.WriteLine($"--- {b:X2}");
             payloadRefill <<= 8;
             payloadRefill |= b;
-            refCnt++;
+            refillBytes++;
             i = b != 0xFF ? i + 1 : i + 2;
 
             //if (b == 0xFF) Console.WriteLine("------- FF00");
 
-        } while (refCnt < refillBytesMax && i < arrLen);
+        } while (refillBytes < refillBytesMax && i < arrLen);
         bytesLoaded = i;
 
-        var refillBits = refCnt * 8;
+        var refillBits = refillBytes * 8;
         payloadRefill <<= availLen - refillBits;
         cont |= payloadRefill;
 
