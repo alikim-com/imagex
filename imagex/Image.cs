@@ -7,6 +7,7 @@ public class Image
     {
         Jpeg,
         Png,
+        Bmp,
         Xdat,
         Rgba,
     }

@@ -1,0 +1,153 @@
+﻿
+using System.Buffers.Binary;
+
+namespace imagex;
+
+public class Bmp : Image
+{
+    private struct HeaderBMP
+    {
+        internal byte[] id;
+        internal int fileSize;
+        internal int pixelArrayOffset;
+    }
+    private readonly HeaderBMP headerBMP;
+
+    private struct HeaderDIB
+    {
+        internal int size;
+        internal int imageWidth;
+        internal int imageHeight;
+        internal short colorPlanes;
+        internal short bitsPerPixel;
+        internal int compression;
+        internal int pixelArraySize;
+        internal int horizontalDPI;
+        internal int verticalDPI;
+        internal int paletteColors;
+        internal int importantColors;
+    }
+    private readonly HeaderDIB headerDIB;
+
+    private readonly byte[] pixelArray;
+
+    public enum PixelFormat
+    {
+        RGB24,
+        BGR24,
+        RGBA32,
+        ABGR32,
+    }
+
+    enum Status
+    {
+        None = 0,
+        OK = 1,
+        InputArrayTooShort = 2,
+    }
+    Status status;
+
+    public Bmp(
+        int _imageWidth,
+        int _imageHeight,
+        PixelFormat fmt,
+        byte[]? _pixelArray = null,
+        bool copyData = false) : base(Format.Bmp, _imageWidth, _imageHeight)
+    {
+        status = Status.None;
+
+        int bytesPerPix = fmt == PixelFormat.RGB24 || fmt == PixelFormat.BGR24 ? 3 : 4;
+        int bytesPerRow = 4 * ((bytesPerPix * _imageWidth + 3) / 4);
+        int pixelArraySize = bytesPerRow * _imageHeight;
+        pixelArray = [];
+
+        if (_pixelArray != null)
+        {
+            var len = _pixelArray.Length;
+            if (len < pixelArraySize)
+            {
+                Console.WriteLine
+                    ($"Bmp.Ctor : provided pixel array is shorter ({len}) than required ({pixelArraySize})");
+                status = Status.InputArrayTooShort;
+                return;
+            }
+            if (copyData)
+            {
+                pixelArray = new byte[pixelArraySize];
+                Buffer.BlockCopy(_pixelArray, 0, pixelArray, 0, pixelArraySize);
+
+            } else pixelArray = _pixelArray;
+
+        } else pixelArray = new byte[pixelArraySize];
+
+        int hdrBMPsize = 14;
+        int hdrDIBsize = 40;
+
+        headerBMP = new HeaderBMP
+        {
+            id = [(byte)'B', (byte)'M'],
+            fileSize = hdrBMPsize + hdrDIBsize + pixelArraySize,
+            pixelArrayOffset = hdrBMPsize + hdrDIBsize,
+        };
+
+        headerDIB = new HeaderDIB
+        {
+            size = hdrDIBsize,
+            imageWidth = _imageWidth,
+            imageHeight = _imageHeight,
+            colorPlanes = 1,
+            bitsPerPixel = (short)(bytesPerPix * 8),
+            compression = 0,
+            pixelArraySize = pixelArraySize,
+            horizontalDPI = 2835, // 72 DPI
+            verticalDPI = 2885,
+            paletteColors = 0,
+            importantColors = 0,
+        };
+
+        status = Status.OK;
+    }
+
+    /// <summary>
+    /// Only reads files in the format created by ToFile()
+    /// </summary>
+    public static Bmp FromFile(string path, string fname)
+    {
+        var data = Utils.ReadFileBytes(path, fname);
+        var len = data.Length;
+
+        int pixArrayOffset = BinaryPrimitives.ReadInt32LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x0a, 4));
+        int width = BinaryPrimitives.ReadInt32LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x12, 4));
+        int height = BinaryPrimitives.ReadInt32LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x16, 4));
+        short bitsPerPixel = BinaryPrimitives.ReadInt16LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x1c, 2));
+        short pixelArraySize = BinaryPrimitives.ReadInt16LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x1c, 2));
+
+        var fmt = bitsPerPixel == 32 ? PixelFormat.ABGR32 : PixelFormat.BGR24;
+        var pixelArray = new byte[pixelArraySize];
+        Buffer.BlockCopy(data, pixArrayOffset, pixelArray, 0, pixelArraySize);
+
+        return new Bmp(width, height, fmt, pixelArray);
+    }
+
+    public override string ToString()
+    {
+        var raw = pixelArray.SneakPeek();
+
+        return
+        $"""
+        BMP image
+           pixel data offset: {headerBMP.pixelArrayOffset:X8}
+           raw pixel data: {raw}
+           DIB header
+              width: {headerDIB.imageWidth}
+              height: {headerDIB.imageHeight}
+              bits per pixel: {headerDIB.bitsPerPixel}
+        status: {Utils.IntBitsToEnums((int)status, typeof(Status))}
+        """;
+    }
+}
