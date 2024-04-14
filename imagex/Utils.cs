@@ -254,6 +254,13 @@ public static class IntExtensions
     /// <summary>
     /// BitConverter.GetBytes always reads memory low -> high;
     /// </summary>
+    /// 
+    public static byte[] BytesLeftToRight(this short val)
+    {
+        short memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
+        return BitConverter.GetBytes(memLayoutBE);
+    }
+
     public static byte[] BytesLeftToRight(this int val)
     {
         int memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
@@ -270,6 +277,12 @@ public static class IntExtensions
     {
         ulong memLayoutBE = isLE ? BinaryPrimitives.ReverseEndianness(val) : val;
         return BitConverter.GetBytes(memLayoutBE);
+    }
+
+    public static byte[] BytesRightToLeft(this short val)
+    {
+        short memLayoutLE = isLE ? val : BinaryPrimitives.ReverseEndianness(val);
+        return BitConverter.GetBytes(memLayoutLE);
     }
 
     public static byte[] BytesRightToLeft(this int val)

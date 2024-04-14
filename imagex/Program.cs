@@ -13,11 +13,22 @@ internal class Program
         //TestLoadPng();
         //TestLoadJpg();
         //StudyQTables();
-        PrintImageInfo();
+        //PrintImageInfo();
         //TestReadHuffmanValues();
+        TestBmpFile();
 
         //byte[] data = [0xF9, 0x1A, 0x1D, 0x12];
         //Console.WriteLine(data.ToBinString());
+    }
+
+    static void TestBmpFile()
+    {
+        var path = "../../../testImages";
+        var fname = "rgb_3x3.bmp";
+        Bmp bmp = Bmp.FromFile(path, fname, true);
+        Console.WriteLine(bmp.ToString());
+
+        bmp.ToFile(path, fname.Split('.')[0] + "_dec");
     }
 
     static void TestReadHuffmanValues()

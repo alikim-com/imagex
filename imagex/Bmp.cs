@@ -100,7 +100,7 @@ public class Bmp : Image
             compression = 0,
             pixelArraySize = pixelArraySize,
             horizontalDPI = 2835, // 72 DPI
-            verticalDPI = 2885,
+            verticalDPI = 2835,
             paletteColors = 0,
             importantColors = 0,
         };
@@ -111,10 +111,9 @@ public class Bmp : Image
     /// <summary>
     /// Only reads files in the format created by ToFile()
     /// </summary>
-    public static Bmp FromFile(string path, string fname)
+    public static Bmp FromFile(string path, string fname, bool trimPixelData = false)
     {
         var data = Utils.ReadFileBytes(path, fname);
-        var len = data.Length;
 
         int pixArrayOffset = BinaryPrimitives.ReadInt32LittleEndian
                 (new ReadOnlySpan<byte>(data, 0x0a, 4));
@@ -124,15 +123,49 @@ public class Bmp : Image
                 (new ReadOnlySpan<byte>(data, 0x16, 4));
         short bitsPerPixel = BinaryPrimitives.ReadInt16LittleEndian
                 (new ReadOnlySpan<byte>(data, 0x1c, 2));
-        short pixelArraySize = BinaryPrimitives.ReadInt16LittleEndian
-                (new ReadOnlySpan<byte>(data, 0x1c, 2));
+        int pixelArraySize = BinaryPrimitives.ReadInt16LittleEndian
+                (new ReadOnlySpan<byte>(data, 0x22, 4));
 
         var fmt = bitsPerPixel == 32 ? PixelFormat.ABGR32 : PixelFormat.BGR24;
         var pixelArray = new byte[pixelArraySize];
         Buffer.BlockCopy(data, pixArrayOffset, pixelArray, 0, pixelArraySize);
 
-        return new Bmp(width, height, fmt, pixelArray);
+        return new Bmp(width, height, fmt, pixelArray, trimPixelData);
     }
+
+    public void ToFile(string path, string fname)
+    {
+        byte[] reserved = [0, 0, 0, 0];
+        byte[][] fileData =
+        [
+            headerBMP.id,
+            headerBMP.fileSize.BytesRightToLeft(),
+            reserved,
+            headerBMP.pixelArrayOffset.BytesRightToLeft(),
+
+            headerDIB.size.BytesRightToLeft(),
+            headerDIB.imageWidth.BytesRightToLeft(),
+            headerDIB.imageHeight.BytesRightToLeft(),
+            headerDIB.colorPlanes.BytesRightToLeft(),
+            headerDIB.bitsPerPixel.BytesRightToLeft(),
+            headerDIB.compression.BytesRightToLeft(),
+            headerDIB.pixelArraySize.BytesRightToLeft(),
+            headerDIB.horizontalDPI.BytesRightToLeft(),
+            headerDIB.verticalDPI.BytesRightToLeft(),
+            headerDIB.paletteColors.BytesRightToLeft(),
+            headerDIB.importantColors.BytesRightToLeft(),
+
+            pixelArray,
+        ];
+
+        if(!fname.EndsWith(".bmp")) fname += ".bmp";
+        Console.Write($"writing to '{Path.Combine(path, fname)}'... ");
+        Utils.WriteFileBytes(path, fname, fileData);
+        Console.WriteLine("OK");
+    }
+
+    // rgba.tobmp() // reformat pixelarray, bottoms up, bgra
+    // bmp.torgba()
 
     public override string ToString()
     {
