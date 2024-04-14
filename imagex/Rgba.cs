@@ -27,6 +27,42 @@ public class Rgba(
         Console.WriteLine("OK");
     }
 
+    /// <summary>
+    /// Reformat rows:
+    /// RGBA, RGBA, ... -> BGR, BGR, padding to mult of 4 bytes, ....
+    /// and rewrite from bottom left corner
+    /// </summary>
+    /// <returns></returns>
+    public Bmp ToBmp()
+    {
+        int bytesPerRowRGB = 3 * Width;
+        int bytesPerRowBMP = 4 * ((bytesPerRowRGB + 3) / 4);
+        int pixelArraySize = bytesPerRowBMP * Height;
+        byte[] dataBMP = new byte[pixelArraySize];
+        int rowPadding = bytesPerRowBMP - bytesPerRowRGB;
+
+        int padding = 0;
+        int bytesPerRowRGBA = 4 * Width;
+        for(int rRGBA = 0; rRGBA < Height; rRGBA++)
+        {
+            int offRGBA = rRGBA * bytesPerRowRGBA;
+            int offBMP = (Height - 1 - rRGBA) * bytesPerRowBMP + padding;
+            for(int offPix = 0; offPix < bytesPerRowRGB; offPix += 3)
+            {
+                int off0 = offPix;
+                int off1 = offPix + 1;
+                int off2 = offPix + 2;
+                dataBMP[offBMP + off2] = pixelData[offRGBA + off0];
+                dataBMP[offBMP + off1] = pixelData[offRGBA + off1];
+                dataBMP[offBMP + off0] = pixelData[offRGBA + off2];
+                offRGBA++;
+            }
+            padding += rowPadding;
+        }
+
+        return new Bmp(Width, Height, Bmp.PixelFormat.BGR24, dataBMP);
+    }
+
     public enum BlendMode
     {
         Custom,

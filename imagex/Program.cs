@@ -13,9 +13,9 @@ internal class Program
         //TestLoadPng();
         //TestLoadJpg();
         //StudyQTables();
-        //PrintImageInfo();
+        PrintImageInfo();
         //TestReadHuffmanValues();
-        TestBmpFile();
+        //TestBmpFile();
 
         //byte[] data = [0xF9, 0x1A, 0x1D, 0x12];
         //Console.WriteLine(data.ToBinString());

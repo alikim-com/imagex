@@ -33,9 +33,7 @@ public class Bmp : Image
 
     public enum PixelFormat
     {
-        RGB24,
         BGR24,
-        RGBA32,
         ABGR32,
     }
 
@@ -45,7 +43,7 @@ public class Bmp : Image
         OK = 1,
         InputArrayTooShort = 2,
     }
-    Status status;
+    readonly Status status;
 
     public Bmp(
         int _imageWidth,
@@ -56,9 +54,9 @@ public class Bmp : Image
     {
         status = Status.None;
 
-        int bytesPerPix = fmt == PixelFormat.RGB24 || fmt == PixelFormat.BGR24 ? 3 : 4;
-        int bytesPerRow = 4 * ((bytesPerPix * _imageWidth + 3) / 4);
-        int pixelArraySize = bytesPerRow * _imageHeight;
+        int bytesPerPix = fmt == PixelFormat.BGR24 ? 3 : 4;
+        int bytesPerRow = 4 * ((bytesPerPix * Width + 3) / 4);
+        int pixelArraySize = bytesPerRow * Height;
         pixelArray = [];
 
         if (_pixelArray != null)
@@ -93,8 +91,8 @@ public class Bmp : Image
         headerDIB = new HeaderDIB
         {
             size = hdrDIBsize,
-            imageWidth = _imageWidth,
-            imageHeight = _imageHeight,
+            imageWidth = Width,
+            imageHeight = Height,
             colorPlanes = 1,
             bitsPerPixel = (short)(bytesPerPix * 8),
             compression = 0,
@@ -163,9 +161,6 @@ public class Bmp : Image
         Utils.WriteFileBytes(path, fname, fileData);
         Console.WriteLine("OK");
     }
-
-    // rgba.tobmp() // reformat pixelarray, bottoms up, bgra
-    // bmp.torgba()
 
     public override string ToString()
     {

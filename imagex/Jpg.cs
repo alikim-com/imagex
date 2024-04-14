@@ -18,7 +18,7 @@ public class Jpg : Image
         SOSNotFound = 4,
         EOINotFound = 8,
     }
-    Status status;
+    readonly Status status;
 
     public struct Marker
     {
@@ -81,13 +81,11 @@ public class Jpg : Image
 
         scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
 
-        
+
         // visualise scan for testing purposes
         var path = "../../../testImages";
         var fname = "q_50.jpg"; // "fourier_01.jpg" "q_50.jpg" "baloon.jpg";
-        var rgba = scan[^1].ToRGBA();
-        rgba.ToFile(path, fname);
-        
+        scan[^1].ToRGBA(true).ToBmp().ToFile(path, fname);
 
         status |= Status.OK;
     }
@@ -338,7 +336,7 @@ class Scan
         public int compId; // [1,1,1,1, 2,2, 3]
         public short[] zigZag;
         public short[,] table;
-        public short[,] pixData;
+        public short[,] compData;
 
         public int chan; // [0,0,0,0, 1,1, 2]
         public int pixTop;
@@ -587,15 +585,49 @@ class Scan
         return true;
     }
 
+    void DeQuantise(IEnumerable<SgmDQT> dqt)
+    {
+        var qTables = new Dictionary<int, ushort[,]>();
+        foreach (var cInd in compList)
+        {
+            bool found = false;
+            var qInd = comp[cInd].quanTableInd;
+            foreach (var qt in dqt)
+            {
+                if (qt.HasMatch(qInd, out ushort[,]? qTable))
+                {
+                    found = true;
+                    qTables.Add(cInd, qTable!);
+                    break;
+                }
+            }
+            if (!found)
+            {
+                status |= Status.DQTNotFound;
+                return;
+            }
+        }
+
+        foreach (var du in DUnits)
+        {
+
+            var qt = qTables[du.compId];
+
+            for (int r = 0; r < 8; r++)
+                for (int c = 0; c < 8; c++)
+                    du.table[r, c] *= (short)qt[r, c];
+        }
+    }
+
     void InverseDCT()
     {
         double PI16 = Math.PI / 16;
         double C0 = 1 / Math.Sqrt(2);
 
-        for(int u = 0; u < DUnits.Length; u++)
+        for (int u = 0; u < DUnits.Length; u++)
         {
             var table = DUnits[u].table;
-            var pixData = DUnits[u].pixData = new short[8, 8];
+            var compData = DUnits[u].compData = new short[8, 8];
 
             for (int r = 0; r < 8; r++)
                 for (int c = 0; c < 8; c++)
@@ -618,51 +650,17 @@ class Scan
                         }
                     }
 
-                    pixData[r, c] = (short)(sum / 4);
+                    compData[r, c] = (short)(sum / 4);
                 }
-        }
-    }
-
-    void DeQuantise(IEnumerable<SgmDQT> dqt)
-    {
-        var qTables = new Dictionary<int, ushort[,]>();
-        foreach(var cInd in compList)
-        {
-            bool found = false;
-            var qInd = comp[cInd].quanTableInd;
-            foreach(var qt in dqt)
-            {
-                if(qt.HasMatch(qInd, out ushort[,]? qTable))
-                {
-                    found = true;
-                    qTables.Add(cInd, qTable!);
-                    break;
-                }
-            }
-            if(!found)
-            {
-                status |= Status.DQTNotFound;
-                return;
-            }
-        }
-
-        foreach(var du in DUnits)
-        {
-
-            var qt = qTables[du.compId];
-
-            for (int r = 0; r < 8; r++)
-                for (int c = 0; c < 8; c++)
-                    du.table[r, c] *= (short)qt[r, c];
         }
     }
 
     public Scan(
-        byte[] _data, 
-        int _begOff, 
-        int _endOff, 
-        SgmSOF0 sof0, 
-        SgmSOS sos, 
+        byte[] _data,
+        int _begOff,
+        int _endOff,
+        SgmSOF0 sof0,
+        SgmSOS sos,
         IEnumerable<SgmDHT> dht,
         IEnumerable<SgmDQT> dqt)
     {
@@ -697,7 +695,10 @@ class Scan
         InverseDCT();
     }
 
-    public Rgba ToRGBA()
+    // FORMULA CONVERSIOn YCBCR -> RGB precision
+    // COS speed up
+
+    public Rgba ToRGBA(bool useRGBSpace = true)
     {
         var mcuWidthInPix = mcuWidthInDu * 8;
         var mcuHeightInPix = mcuHeightInDu * 8;
@@ -705,7 +706,8 @@ class Scan
         var scanHeight = heightInMcu * mcuHeightInPix;
         var pdWidth = scanWidth * 4; // RGBA
         var pdHeight = scanHeight;
-        var pixelData = new byte[pdWidth * pdHeight];
+        var size = pdWidth * pdHeight;
+        var scanData = new short[size];
 
         for (int r = 0; r < heightInMcu; r++)
             for (int c = 0; c < widthInMcu; c++)
@@ -720,9 +722,9 @@ class Scan
                     var compId = du.compId;
                     var upscaleHor = comp[compId].upscaleHor;
                     var upscaleVer = comp[compId].upscaleVer;
-                    var duScaled = upscaleHor == 1 && upscaleVer == 1 ?
-                        du.pixData : Utils.ScaleArray(du.pixData, upscaleHor, upscaleVer);
-                    // du.table : Utils.ScaleArray(du.table, upscaleHor, upscaleVer);
+                    short[,] duScaled =
+                        upscaleHor == 1 && upscaleVer == 1 ?
+                        du.compData : Utils.ScaleArray(du.compData, upscaleHor, upscaleVer);
 
                     var rOff2 = rOff + du.pixTop;
                     var cOff2 = cOff + du.pixLeft * 4; // RGBA
@@ -737,11 +739,37 @@ class Scan
                         for (int tc = 0; tc < upCols; tc++)
                         {
                             var cOff3 = cOff2 + tc * 4 + chan;
-                            var ampl = (byte)duScaled[tr, tc]; // ampl < 128 ? ampl : ~ampl + 1
-                            pixelData[pdRnr + cOff3] = ampl;
+                            scanData[pdRnr + cOff3] = duScaled[tr, tc];
                         }
                     }
                 }
+            }
+
+        var pixelData = new byte[size];
+
+        if (useRGBSpace)
+            for (int i = 0; i < pixelData.Length; i += 4)
+            {
+                var Y = scanData[i];
+                var Cb = scanData[i + 1];
+                var Cr = scanData[i + 2];
+                var R = Y + 1.402 * Cr;
+                var G = Y - 0.344 * Cb - 0.714 * Cr;
+                var B = Y + 1.772 * Cb;
+                if (R < -128) R = -128; else if (R > 127) R = 127;
+                if (G < -128) G = -128; else if (G > 127) G = 127;
+                if (B < -128) B = -128; else if (B > 127) B = 127;
+                pixelData[i] = (byte)(R + 128);
+                pixelData[i + 1] = (byte)(G + 128);
+                pixelData[i + 2] = (byte)(B + 128);
+            }
+        else
+            for (int i = 0; i < pixelData.Length; i++)
+            {
+                var si = scanData[i];
+                if (si < -128) si = -128;
+                else if (si > 127) si = 127;
+                pixelData[i] = (byte)(si + 128);
             }
 
         return new Rgba(scanWidth, scanHeight, pixelData);
@@ -979,7 +1007,7 @@ public class SgmDHT : Segment
             qtOff = vOff;
         }
 
-       // Console.WriteLine(ParsedData());
+        // Console.WriteLine(ParsedData());
     }
 
     protected override string ParsedData()
