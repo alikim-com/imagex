@@ -1,6 +1,6 @@
-﻿// 1. https://www.media.mit.edu/pia/Research/deepview/exif.html
-//    table tag info extractor ./tagExtractor.js
-// 2. https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&pp=iAQB
+﻿// 1.  https://www.media.mit.edu/pia/Research/deepview/exif.html
+// 1a. table tag info extractor ./tagExtractor.js
+// 2.  https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&pp=iAQB
 
 using System.Buffers.Binary;
 using static imagex.Segment;
@@ -364,6 +364,26 @@ class Scan
     readonly int widthInMcu;
     readonly int heightInMcu;
 
+    readonly static double[] DCTArray;
+
+    static Scan()
+    {
+        double PI16 = Math.PI / 16;
+        double C0 = 1 / Math.Sqrt(2);
+
+        int off = 0;
+        DCTArray = new double[64];
+        for (int i = 0; i < 8; i++)
+        {
+            for (int _i = 0; _i < 8; _i++)
+            {
+                double cr = _i != 0 ? 1 : C0;
+                DCTArray[off + _i] = cr * Math.Cos((2 * i + 1) * _i * PI16);
+            }
+            off += 8;
+        }
+    }
+
     void AssignComponentTables(SgmSOS sos, IEnumerable<SgmDHT> dht)
     {
         var tableInd = sos.tableInd;
@@ -621,37 +641,33 @@ class Scan
 
     void InverseDCT()
     {
-        double PI16 = Math.PI / 16;
-        double C0 = 1 / Math.Sqrt(2);
-
         for (int u = 0; u < DUnits.Length; u++)
         {
             var table = DUnits[u].table;
             var compData = DUnits[u].compData = new short[8, 8];
 
+            int offr = 0;
             for (int r = 0; r < 8; r++)
+            {
+                int offc = 0;
                 for (int c = 0; c < 8; c++)
                 {
                     double sum = 0;
 
                     for (int _r = 0; _r < 8; _r++)
                     {
-                        double cr = 1;
-                        if (_r == 0) cr = C0;
+                        var dctr = DCTArray[offr + _r];
 
                         for (int _c = 0; _c < 8; _c++)
-                        {
-                            double cc = 1;
-                            if (_c == 0) cc = C0;
-
-                            sum += cr * cc * table[_r, _c] *
-                                Math.Cos((2 * r + 1) * _r * PI16) *
-                                Math.Cos((2 * c + 1) * _c * PI16);
-                        }
+                            sum += dctr * DCTArray[offc + _c] * table[_r, _c];
                     }
-
                     compData[r, c] = (short)(sum / 4);
+
+                    offc += 8;
                 }
+
+                offr += 8;
+            }
         }
     }
 
@@ -696,7 +712,6 @@ class Scan
     }
 
     // FORMULA CONVERSIOn YCBCR -> RGB precision
-    // COS speed up
 
     public Rgba ToRGBA(bool useRGBSpace = true)
     {
@@ -753,23 +768,18 @@ class Scan
                 var Y = scanData[i];
                 var Cb = scanData[i + 1];
                 var Cr = scanData[i + 2];
-                var R = Y + 1.402 * Cr;
-                var G = Y - 0.344 * Cb - 0.714 * Cr;
-                var B = Y + 1.772 * Cb;
-                if (R < -128) R = -128; else if (R > 127) R = 127;
-                if (G < -128) G = -128; else if (G > 127) G = 127;
-                if (B < -128) B = -128; else if (B > 127) B = 127;
-                pixelData[i] = (byte)(R + 128);
-                pixelData[i + 1] = (byte)(G + 128);
-                pixelData[i + 2] = (byte)(B + 128);
+                var R = Math.Clamp(Y + 1.402 * Cr + 128, 0, 255);
+                var G = Math.Clamp(Y - 0.344 * Cb - 0.714 * Cr + 128, 0, 255);
+                var B = Math.Clamp(Y + 1.772 * Cb + 128, 0, 255);
+                pixelData[i] = (byte)R;
+                pixelData[i + 1] = (byte)G;
+                pixelData[i + 2] = (byte)B;
             }
         else
             for (int i = 0; i < pixelData.Length; i++)
             {
-                var si = scanData[i];
-                if (si < -128) si = -128;
-                else if (si > 127) si = 127;
-                pixelData[i] = (byte)(si + 128);
+                var si = Math.Clamp(scanData[i] + 128, 0, 255);
+                pixelData[i] = (byte)si;
             }
 
         return new Rgba(scanWidth, scanHeight, pixelData);
