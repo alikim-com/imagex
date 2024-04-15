@@ -206,7 +206,7 @@ public class Jpg : Image
         return rowMajor;
     }
 
-    public static List<Jpg> FromFile(string path, string fname)
+    public static List<Jpg> FromFile(string path, string fname, bool verbose = true)
     {
         List<Jpg> JpgList = [];
 
@@ -216,6 +216,8 @@ public class Jpg : Image
         var mArr = Enum.GetValues(typeof(SgmType));
 
         List<Marker> markers = [];
+
+        if (verbose) Console.WriteLine("Jpg.FromFile : scanning for markers...");
 
         int ioff = 0;
         for (int i = 0; i < len - 1; i++)
@@ -229,6 +231,8 @@ public class Jpg : Image
                 if (vmrk != mrk) continue;
 
                 var smrk = (SgmType)mrk;
+
+                if (verbose) Console.WriteLine($"{i:X8} {smrk}");
 
                 if (smrk == SgmType.SOI)
                 {
@@ -249,11 +253,13 @@ public class Jpg : Image
 
                 markers.Add(new Marker { type = smrk, pos = i + 2, len = rawLen - 2 });
 
-                i += rawLen; // FromFileRobust w/o this line
+                i += rawLen; // FromFileRobust w/o this line ---------- DETECT EXIF LENGTH ??
 
                 break;
             }
         }
+
+        if (verbose) Console.WriteLine();
 
         return JpgList;
     }
@@ -711,8 +717,6 @@ class Scan
         InverseDCT();
     }
 
-    // FORMULA CONVERSIOn YCBCR -> RGB precision
-
     public Rgba ToRGBA(bool useRGBSpace = true)
     {
         var mcuWidthInPix = mcuWidthInDu * 8;
@@ -769,7 +773,7 @@ class Scan
                 var Cb = scanData[i + 1];
                 var Cr = scanData[i + 2];
                 var R = Math.Clamp(Y + 1.402 * Cr + 128, 0, 255);
-                var G = Math.Clamp(Y - 0.344 * Cb - 0.714 * Cr + 128, 0, 255);
+                var G = Math.Clamp(Y - 0.34414 * Cb - 0.71414 * Cr + 128, 0, 255);
                 var B = Math.Clamp(Y + 1.772 * Cb + 128, 0, 255);
                 pixelData[i] = (byte)R;
                 pixelData[i + 1] = (byte)G;
@@ -2006,29 +2010,91 @@ public class SgmCOM(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_mar
 {
 }
 
+public class SgmUnsupported(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_marker, _data)
+{
+}
+
 public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 {
-    // SOF0 : Baseline DCT
-    // SOF1 : Extended sequential DCT, Huffman coding
-    // SOF2 : Progressive DCT, Huffman coding
-    // SOF3 : Lossless(sequential), Huffman coding
-    // SOF9 : Extended sequential DCT, arithmetic coding
-    // SOF10 : Progressive DCT, arithmetic coding
-    // SOF11 : Lossless(sequential), arithmetic coding
-
     public enum SgmType
     {
-        SOI = 0xFFD8,
-        SOF0 = 0xFFC0,
-        SOF2 = 0xFFC2,
-        DHT = 0xFFC4,
-        DQT = 0xFFDB,
-        DRI = 0xFFDD,
-        SOS = 0xFFDA,
-        APP0 = 0xFFE0,
-        APP1 = 0xFFE1,
-        COM = 0xFFFE,
-        EOI = 0xFFD9
+        // Start of frame, non-differential, Huffman coding
+        SOF0 = 0xFFC0, // Baseline DCT
+        SOF1 = 0xFFC1, // Extended sequential DCT
+        SOF2 = 0xFFC2, // Progressive DCT
+        SOF3 = 0xFFC3, // Lossless (sequential)
+        // Start of frame, differential, Huffman coding
+        SOF5 = 0xFFC5, // Differential sequential DCT
+        SOF6 = 0xFFC6, // Differential progressive DCT
+        SOF7 = 0xFFC7, // Differential lossless (sequential)
+        // Start of frame, non-differential, arithmetic coding
+        JPG = 0xFFC8, // Reserved for JPEG extensions
+        SOF9 = 0xFFC9, // Extended sequential DCT
+        SOF10 = 0xFFCA, // Progressive DCT
+        SOF11 = 0xFFCB, // Lossless (sequential)
+        // Start of frame, differential, arithmetic coding
+        SOF13 = 0xFFCD, // Differential sequential DCT
+        SOF14 = 0xFFCE, // Differential progressive DCT
+        SOF15 = 0xFFCF, // Differential lossless (sequential)
+
+        DHT = 0xFFC4, // Define Huffman table(s)
+        DAC = 0xFFCC, // Define arithmetic coding conditioning(s)
+
+        // Restart interval termination
+        RST0 = 0xFFD0,
+        RST1 = 0xFFD1,
+        RST2 = 0xFFD2,
+        RST3 = 0xFFD3,
+        RST4 = 0xFFD4,
+        RST5 = 0xFFD5,
+        RST6 = 0xFFD6,
+        RST7 = 0xFFD7,
+
+        SOI = 0xFFD8, // Start of image
+        EOI = 0xFFD9, // End of image
+        SOS = 0xFFDA, // Start of scan
+        DQT = 0xFFDB, // Define quantization table(s)
+        DNL = 0xFFDC, // Define number of lines
+        DRI = 0xFFDD, // Define restart interval
+        DHP = 0xFFDE, // Define hierarchical progression
+        EXP = 0xFFDF, // Expand reference component(s)
+
+        // Application segments
+        APP0 = 0xFFE0, // JFIF
+        APP1 = 0xFFE1, // Exif
+        APP2 = 0xFFE2,
+        APP3 = 0xFFE3,
+        APP4 = 0xFFE4,
+        APP5 = 0xFFE5,
+        APP6 = 0xFFE6,
+        APP7 = 0xFFE7,
+        APP8 = 0xFFE8,
+        APP9 = 0xFFE9,
+        APP10 = 0xFFEA,
+        APP11 = 0xFFEB,
+        APP12 = 0xFFEC,
+        APP13 = 0xFFED,
+        APP14 = 0xFFEE,
+        APP15 = 0xFFEF,
+
+        // Extention segments
+        JPG0 = 0xFFF0, 
+        JPG1 = 0xFFF1, 
+        JPG2 = 0xFFF2,
+        JPG3 = 0xFFF3,
+        JPG4 = 0xFFF4,
+        JPG5 = 0xFFF5,
+        JPG6 = 0xFFF6,
+        JPG7 = 0xFFF7,
+        JPG8 = 0xFFF8,
+        JPG9 = 0xFFF9,
+        JPG10 = 0xFFFA,
+        JPG11 = 0xFFFB,
+        JPG12 = 0xFFFC,
+        JPG13 = 0xFFFD,
+
+        COM = 0xFFFE, // Comment
+
     }
 
     public static readonly Dictionary<SgmType, Type> classMap = new() {
@@ -2059,7 +2125,8 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 
     public static Segment Create(Jpg.Marker _marker, ArraySegment<byte> _data)
     {
-        Type clsType = classMap[_marker.type];
+        if (!classMap.TryGetValue(_marker.type, out Type? clsType)) 
+            return new SgmUnsupported(_marker, _data.Slice(_marker.pos, _marker.len));
 
         object[] param = [_marker, _data.Slice(_marker.pos, _marker.len)];
         var obj = Activator.CreateInstance(clsType, param);
