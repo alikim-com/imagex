@@ -20,20 +20,35 @@ public class Jpg : Image
     }
     readonly Status status;
 
+    public readonly static int[,] rowCol = ZigZagToRowCol();
+
     public struct Marker
     {
         public SgmType type;
         public int pos;
         public int len;
     }
-
     readonly ArraySegment<byte> data;
     readonly List<Marker> markers;
-    readonly List<Segment> segments = [];
 
-    readonly List<Scan> scan = [];
+    public List<Segment> metaInfos;
 
-    public readonly static int[,] rowCol = ZigZagToRowCol();
+    class Frame(Segment _header, List<Segment> _dhts, List<Segment> _dqts)
+    {
+        public List<Segment> dhts = _dhts;
+        public List<Segment> dqts = _dqts;
+        public Segment header = _header;
+        public List<Scan> scans = [];
+    }
+    readonly List<Frame> frames;
+
+    class Scan(Segment _header, List<Segment> _dhts, List<Segment> _dqts)
+    {
+        public List<Segment> dhts = _dhts;
+        public List<Segment> dqts = _dqts;
+        public Segment header = _header;
+        public List<ECS> ecs = [];
+    }
 
     public Jpg(
         ArraySegment<byte> _data,
@@ -41,10 +56,45 @@ public class Jpg : Image
     {
         status = Status.None;
 
-        // create segment objects
-
         data = _data;
         markers = _markers;
+
+        // create top-level structure
+
+        List<Segment> dhts = [];
+        List<Segment> dqts = [];
+        metaInfos = [];
+        frames = [];
+        for (int i = 0; i < markers.Count; i++)
+        {
+            var mrk = markers[i];
+            var sgmType = mrk.type;
+            var sgmName = sgmType.ToString();
+
+            if (sgmName.StartsWith("SOF"))
+                if (sgmName == "SOF0")
+                {
+                    frames.Add(new Frame(Create(mrk, _data), dhts, dqts));
+                    dhts = [];
+                    dqts = [];
+                } else
+                    throw new NotImplementedException($"Jpg.Ctor : {sgmName} frame header found, only Baseline DCT is currently supported.");
+
+            else if (sgmName == "SOS")
+            {
+                frames[^1].scans.Add(new Scan(Create(mrk, _data), dhts, dqts));
+                dhts = [];
+                dqts = [];
+            } else if (sgmName.StartsWith("APP")) metaInfos.Add(Create(mrk, _data));
+
+            else if (sgmType == SgmType.DQT) dqts.Add(Create(mrk, _data));
+            else if (sgmType == SgmType.DHT) dhts.Add(Create(mrk, _data));
+
+        }
+
+        /*
+        // create segment objects
+
         for (int i = 0; i < markers.Count; i++)
         {
             var mrk = markers[i];
@@ -86,6 +136,7 @@ public class Jpg : Image
         var path = "../../../testImages";
         var fname = "q_50.jpg"; // "fourier_01.jpg" "q_50.jpg" "baloon.jpg";
         scan[^1].ToRGBA(true).ToBmp().ToFile(path, fname);
+        */
 
         status |= Status.OK;
     }
@@ -274,14 +325,32 @@ public class Jpg : Image
     public List<Segment> GetSegments(SgmType stype)
     {
         Type cType = classMap[stype];
-        return segments.Where(s => s.GetType() == cType).ToList();
+        return new List<Segment>();// segments.Where(s => s.GetType() == cType).ToList();
     }
 
     public override string ToString()
     {
         var raw = data.SneakPeek();
 
-        string sgmStr = string.Join("", segments.Select(sgm => sgm.ToString()));
+        string sgmStr = "";
+
+        foreach (var meta in metaInfos) sgmStr += meta.ToString();
+
+        foreach (var fr in frames)
+        {
+            sgmStr += fr.header.ToString();
+
+            foreach (var dqt in fr.dqts) sgmStr += dqt.ToString();
+            foreach (var dht in fr.dhts) sgmStr += dht.ToString();
+
+            foreach (var scan in fr.scans)
+            {
+                sgmStr += scan.header.ToString();
+
+                foreach (var dqt in scan.dqts) sgmStr += dqt.ToString();
+                foreach (var dht in scan.dhts) sgmStr += dht.ToString();
+            }
+        }
 
         return
         $"""
@@ -289,7 +358,6 @@ public class Jpg : Image
            raw data: {raw}
         {sgmStr} 
         status: {Utils.IntBitsToEnums((int)status, typeof(Status))}
-        MCU: 
         """;
     }
 }
@@ -316,7 +384,10 @@ public struct Component
     public List<int>? acValidCodeLength;
 }
 
-class Scan
+/// <summary>
+/// Entropy-coded segment
+/// </summary>
+class ECS
 {
     enum Status
     {
@@ -372,7 +443,7 @@ class Scan
 
     readonly static double[] DCTArray;
 
-    static Scan()
+    static ECS()
     {
         double PI16 = Math.PI / 16;
         double C0 = 1 / Math.Sqrt(2);
@@ -677,7 +748,7 @@ class Scan
         }
     }
 
-    public Scan(
+    public ECS(
         byte[] _data,
         int _begOff,
         int _endOff,
@@ -889,29 +960,30 @@ public class SgmSOF0 : Segment
         duSeq = [.. seq];
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
+        string m = "".PadRight(margin);
         string compInfo = "";
         foreach (var ind in compList)
         {
             var ci = comp[ind];
             compInfo +=
             $"""
-                   [{ind}]
-                   subsampl. hor: {ci.samFactHor}
-                   subsampl. ver: {ci.samFactVer}
-                   quant table [{ci.quanTableInd}]
+             {m}[{ind}]
+             {m}subsampl. hor: {ci.samFactHor}
+             {m}subsampl. ver: {ci.samFactVer}
+             {m}quant table [{ci.quanTableInd}]
 
              """;
         }
 
         return
         $"""
-              sample precision: {samPrec}
-              max lines: {numLines}
-              max samples per line: {samPerLine}
-              components: {numComp}
-        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+        {m}sample precision: {samPrec}
+        {m}max lines: {numLines}
+        {m}max samples per line: {samPerLine}
+        {m}components: {numComp}
+        {compInfo}{m}status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
     }
@@ -1020,14 +1092,13 @@ public class SgmDHT : Segment
 
             qtOff = vOff;
         }
-
-        // Console.WriteLine(ParsedData());
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
         int maxLineLen = 100;
 
+        string m = "".PadRight(margin);
         string outp = "";
 
         for (int i = 0; i < huffTableInd.Count; i++)
@@ -1035,12 +1106,12 @@ public class SgmDHT : Segment
             var _codesPerLen = codesPerLen[i];
             var _codesToSymb = codesToSymb[i];
 
-            string tInfo = "      codebitlen(totalSymb) code:numZrs/valBitlen, ..\n";
+            string tInfo = m + "codebitlen(totalSymb) code:numZrs/valBitlen, ..\n";
             for (int k = 0; k < 16; k++)
             {
                 var cts = _codesToSymb[k];
                 var len = _codesPerLen[k];
-                var pref = $"      {k + 1,2}({len})".PadRight(13);
+                var pref = $"{m}{k + 1,2}({len})".PadRight(13);
                 int lineLen = pref.Length;
                 tInfo += pref;
                 for (int j = 0; j < len; j++)
@@ -1064,9 +1135,9 @@ public class SgmDHT : Segment
             }
             outp +=
             $"""
-                  table type: {type[i]}
-                  table id [{huffTableInd[i]}]
-            {tInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+            {m}table type: {type[i]}
+            {m}table id [{huffTableInd[i]}]
+            {tInfo}{m}status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
             """;
         }
@@ -1158,8 +1229,9 @@ public class SgmDQT : Segment
         return OK;
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
+        string m = "".PadRight(margin);
         string outp = "";
 
         for (int i = 0; i < QTable.Count; i++)
@@ -1168,15 +1240,15 @@ public class SgmDQT : Segment
             string qtInfo = "";
             for (int k = 0; k < 8; k++)
             {
-                qtInfo += "     ";
+                qtInfo += m;
                 for (int j = 0; j < 8; j++) qtInfo += _QTable[k, j].ToString().PadLeft(4, ' ');
                 qtInfo += "\n";
             }
             outp +=
             $"""
-                  table precision: {(qtPrec[i] + 1) * 8} bit
-                  table id [{quanTableInd[i]}]
-            {qtInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+            {m}table precision: {(qtPrec[i] + 1) * 8} bit
+            {m}table id [{quanTableInd[i]}]
+            {qtInfo}{m}status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
             """;
         }
@@ -1262,28 +1334,29 @@ public class SgmSOS : Segment
         bitStrOff = _data.Offset + 4 + paramLen;
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
+        string m = "".PadRight(margin);
         string compInfo = "";
         foreach (var ind in compList)
         {
             var ti = tableInd[ind];
             compInfo +=
             $"""
-                   [{ind}]
-                   DC table [{ti.dc}]
-                   AC table [{ti.ac}]
+             {m}[{ind}]
+             {m}DC table [{ti.dc}]
+             {m}AC table [{ti.ac}]
 
              """;
         }
 
         return
         $"""
-              components: {numComp}
-              selection: {selBeg} - {selEnd}
-              bit pos high: {bitPosHigh}
-              bit pos low:  {bitPosLow}
-        {compInfo}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
+        {m}components: {numComp}
+        {m}selection: {selBeg} - {selEnd}
+        {m}bit pos high: {bitPosHigh}
+        {m}bit pos low:  {bitPosLow}
+        {compInfo}{m}status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
     }
@@ -1360,18 +1433,19 @@ public class SgmAPP0 : Segment
         }
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
+        string m = "".PadRight(margin);
         string tn = thumb != null ?
             $"{thWidth}x{thHeight} {thumb.pixelData.SneakPeek()}" : "none";
 
         return
         $"""
-              id: {Id}
-              ver {mjVer}.{mnVer.ToString().PadLeft(2, '0')}
-              density: {denX}x{denY} {denU}
-              thumbnail: {tn}
-              status: {Utils.IntBitsToEnums(status, typeof(Status))}
+        {m}id: {Id}
+        {m}ver {mjVer}.{mnVer.ToString().PadLeft(2, '0')}
+        {m}density: {denX}x{denY} {denU}
+        {m}thumbnail: {tn}
+        {m}status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
     }
@@ -1464,10 +1538,9 @@ public class SgmAPP1 : Segment
         }
     }
 
-    protected override string ParsedData()
+    protected override string ParsedData(int margin = 0)
     {
-        //string tn = thumb != null ?
-        //    $"{thWidth}x{thHeight} {thumb.pixelData.SneakPeek()}" : "none";
+        string m = "".PadRight(margin);
 
         string byteOrd = isLE ? "LittleEndian" : "BigEndinan";
         string ifdStr = "";
@@ -1475,10 +1548,10 @@ public class SgmAPP1 : Segment
             ifdStr += $"{ifd}";
         return
         $"""
-              id: {Id}
-              byte order: {byteOrd}
-        {ifdStr.TrimEnd('\n', '\r')}
-              status: {Utils.IntBitsToEnums(status, typeof(Status))}
+        {m}id: {Id}
+        {m}      byte order: {byteOrd}
+        {m}{ifdStr.TrimEnd('\n', '\r')}
+        {m}      status: {Utils.IntBitsToEnums(status, typeof(Status))}
 
         """;
     }
@@ -2078,8 +2151,8 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
         APP15 = 0xFFEF,
 
         // Extention segments
-        JPG0 = 0xFFF0, 
-        JPG1 = 0xFFF1, 
+        JPG0 = 0xFFF0,
+        JPG1 = 0xFFF1,
         JPG2 = 0xFFF2,
         JPG3 = 0xFFF3,
         JPG4 = 0xFFF4,
@@ -2125,7 +2198,7 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 
     public static Segment Create(Jpg.Marker _marker, ArraySegment<byte> _data)
     {
-        if (!classMap.TryGetValue(_marker.type, out Type? clsType)) 
+        if (!classMap.TryGetValue(_marker.type, out Type? clsType))
             return new SgmUnsupported(_marker, _data.Slice(_marker.pos, _marker.len));
 
         object[] param = [_marker, _data.Slice(_marker.pos, _marker.len)];
@@ -2139,14 +2212,16 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 
     public override string ToString()
     {
+        int margin = 3;
+        string m = "".PadRight(margin);
         return $"""
-                  {marker.type}
-                     raw data: {data.SneakPeek()}
-                     pos: 0x{marker.pos.HexStr()}
-                     len: {marker.len}
-               {ParsedData()}
+               {marker.type}
+               {m}raw data: {data.SneakPeek()}
+               {m}pos: 0x{marker.pos.HexStr()}
+               {m}len: {marker.len}
+               {ParsedData(margin)}
                """;
     }
 
-    virtual protected string ParsedData() => "";
+    virtual protected string ParsedData(int margin = 0) => "";
 }

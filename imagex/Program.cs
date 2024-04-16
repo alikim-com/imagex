@@ -172,7 +172,9 @@ internal class Program
         Console.WriteLine("decoding '" + fname + "'..");
 
         var images = Jpg.FromFile(path, fname);
-        foreach (var jpg in images) Console.WriteLine(jpg);
+        foreach(var img in images) Console.WriteLine(img);
+        //foreach (var jpg in images) Console.WriteLine(jpg);
+
 
 
     }
