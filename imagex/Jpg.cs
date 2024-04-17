@@ -3,6 +3,7 @@
 // 2.  https://www.youtube.com/watch?v=CPT4FSkFUgs&list=PLpsTn9TA_Q8VMDyOPrDKmSJYt1DLgDZU4&pp=iAQB
 
 using System.Buffers.Binary;
+
 using static imagex.Segment;
 using static imagex.SgmDHT;
 
@@ -14,9 +15,8 @@ public class Jpg : Image
     {
         None = 0,
         OK = 1,
-        FrameHeaderNotFound = 2,
-        SOSNotFound = 4,
-        EOINotFound = 8,
+        CriticalSegmentMissing = 2,
+        WrongHeaderFormat = 4,
     }
     readonly Status status;
 
@@ -74,7 +74,7 @@ public class Jpg : Image
             if (sgmName.StartsWith("SOF"))
                 if (sgmName == "SOF0")
                 {
-                    frames.Add(new Frame(Create(mrk, _data), dhts, dqts));
+                    frames.Add(new Frame(Decode(mrk, _data), dhts, dqts));
                     dhts = [];
                     dqts = [];
                 } else
@@ -82,63 +82,49 @@ public class Jpg : Image
 
             else if (sgmName == "SOS")
             {
-                frames[^1].scans.Add(new Scan(Create(mrk, _data), dhts, dqts));
+                frames[^1].scans.Add(new Scan(Decode(mrk, _data), dhts, dqts));
                 dhts = [];
                 dqts = [];
-            } else if (sgmName.StartsWith("APP")) metaInfos.Add(Create(mrk, _data));
+            } else if (sgmName.StartsWith("APP")) metaInfos.Add(Decode(mrk, _data));
 
-            else if (sgmType == SgmType.DQT) dqts.Add(Create(mrk, _data));
-            else if (sgmType == SgmType.DHT) dhts.Add(Create(mrk, _data));
+            else if (sgmType == SgmType.DQT) dqts.Add(Decode(mrk, _data));
+            else if (sgmType == SgmType.DHT) dhts.Add(Decode(mrk, _data));
 
         }
 
-        /*
-        // create segment objects
+        // check integrity
 
-        for (int i = 0; i < markers.Count; i++)
+        if (frames.Count == 0)
         {
-            var mrk = markers[i];
-            segments.Add(Create(mrk, _data));
-        }
-
-        var sgmSos = GetSegments(SgmType.SOS)[0];
-        if (sgmSos is not SgmSOS sos)
-        {
-            status |= Status.SOSNotFound;
+            status |= Status.CriticalSegmentMissing;
             return;
         }
 
-        if (GetSegments(SgmType.SOF0)[0] is not SgmSOF0 sof0)
+        foreach (var fr in frames)
         {
-            status |= Status.FrameHeaderNotFound;
+            if (fr.scans.Count == 0 ||
+                fr.dqts.Count == 0 && fr.scans[0].dqts.Count == 0 ||
+                fr.dhts.Count == 0 && fr.scans[0].dhts.Count == 0)
+            {
+                status |= Status.CriticalSegmentMissing;
+                return;
+            }
+        }
+
+        if (frames[0].header is not SgmSOF0 header)
+        {
+            status |= Status.WrongHeaderFormat;
             return;
         }
 
-        Width = sof0.samPerLine;
-        Height = sof0.numLines;
-
-        // process scan (decode Data Units and assemble MCUs)
-
-        var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
-
-        var begOff = sos.bitStrOff;
-        // end of scan data is defined by a next segment marker or EOI
-        var eoiOff = _data.Offset + _data.Count;
-        var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
-        var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
-
-        var dqt = GetSegments(SgmType.DQT).Select(sgm => (SgmDQT)sgm);
-
-        scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
-
-
-        // visualise scan for testing purposes
-        var path = "../../../testImages";
-        var fname = "q_50.jpg"; // "fourier_01.jpg" "q_50.jpg" "baloon.jpg";
-        scan[^1].ToRGBA(true).ToBmp().ToFile(path, fname);
-        */
+        Width = header.samPerLine;
+        Height = header.numLines;
 
         status |= Status.OK;
+    }
+
+    public static void RemoveUnknownChunks()
+    {
     }
 
     public static int[,] ZigZagToRowCol(int size = 8)
@@ -315,17 +301,81 @@ public class Jpg : Image
         return JpgList;
     }
 
-    public static Xjpg ToXjpg(Jpg png, bool verbose = true)
+    public Xjpg ToXjpg(bool verbose = true)
     {
+        // process scans (decode Data Units and assemble MCUs)
 
-        return new Xjpg();
+        //foreach (var fr in frames)
+        //{
+        //    sgmStr += fr.header.ToString();
+
+        //    foreach (var dqt in fr.dqts) sgmStr += dqt.ToString();
+        //    foreach (var dht in fr.dhts) sgmStr += dht.ToString();
+
+        //    foreach (var scan in fr.scans)
+        //    {
+        //        sgmStr += scan.header.ToString();
+
+        //        foreach (var dqt in scan.dqts) sgmStr += dqt.ToString();
+        //        foreach (var dht in scan.dhts) sgmStr += dht.ToString();
+        //    }
+        //}
+
+        //var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
+
+        //var begOff = sos.bitStrOff;
+        //// end of scan data is defined by a next segment marker or EOI
+        //var eoiOff = _data.Offset + _data.Count;
+        //var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
+        //var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
+
+        //var dqt = GetSegments(SgmType.DQT).Select(sgm => (SgmDQT)sgm);
+
+        //scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
+
+        return new Xjpg(this, verbose);
 
     }
 
+    public Rgba BaselineDCTScanToRgba(bool useRGBSpace = true) =>
+        frames[0].scans[0].ecs[0].ToRGBA(useRGBSpace);
+
     public List<Segment> GetSegments(SgmType stype)
     {
+        string sgmName = stype.ToString();
         Type cType = classMap[stype];
-        return new List<Segment>();// segments.Where(s => s.GetType() == cType).ToList();
+        List<Segment> sgmList = [];
+
+        bool sgmMeta = sgmName.StartsWith("APP");
+        bool sgmHeader = sgmName.StartsWith("SOF");
+        bool sgmDHQ = sgmName.StartsWith("DHQ");
+        bool sgmDHT = sgmName.StartsWith("DHT");
+        bool sgmSOS = sgmName.StartsWith("SOS");
+
+        if (sgmMeta)
+            sgmList.AddRange(metaInfos.Where(sgm => sgm.GetType() == cType));
+
+        foreach (var fr in frames)
+        {
+            if (sgmHeader)
+                sgmList.Add(fr.header);
+            else if (sgmDHQ)
+                sgmList.AddRange(fr.dqts.Where(sgm => sgm.GetType() == cType));
+            else if (sgmDHT)
+                sgmList.AddRange(fr.dhts.Where(sgm => sgm.GetType() == cType));
+
+            foreach (var scan in fr.scans)
+            {
+                if (sgmHeader)
+                    sgmList.Add(scan.header);
+                else if (sgmDHQ)
+                    sgmList.AddRange(scan.dqts.Where(sgm => sgm.GetType() == cType));
+                else if (sgmDHT)
+                    sgmList.AddRange(scan.dhts.Where(sgm => sgm.GetType() == cType));
+            }
+        }
+
+        return sgmList;
     }
 
     public override string ToString()
@@ -376,7 +426,7 @@ public struct Component
     public int upscaleHor; // from subsampling; MCU / DU
     public int upscaleVer;
 
-    // added in Scan Ctor only for scan comp
+    // added in ECS Ctor for existing comp
 
     public KeyValuePair<ushort, Symb>[][]? dcCodesToSymb; // from DHTs
     public List<int>? dcValidCodeLength;
@@ -406,7 +456,7 @@ class ECS
     public readonly int[] compList;
 
     /// <summary>
-    /// Represents one Data Unit (8x8) channel
+    /// Represents one Data Unit (8x8 component data)
     /// </summary>
     struct DataUnit
     {
@@ -872,7 +922,7 @@ class ECS
 /// Sequence or reading DUs for one MCU; </br> 
 /// For quad subsampling 2:1:1 it's [1,1,1,1, 2, 3] -> [Y0,Y1,Y2,Y3, Cb0, Cr0]
 /// </param>
-public class SgmSOF0 : Segment
+public partial class SgmSOF0 : Segment
 {
     readonly byte samPrec; // P
     public readonly ushort numLines; // Y
@@ -2196,7 +2246,7 @@ public abstract class Segment(Jpg.Marker _marker, ArraySegment<byte> _data)
 
     readonly Jpg.Marker marker = _marker;
 
-    public static Segment Create(Jpg.Marker _marker, ArraySegment<byte> _data)
+    public static Segment Decode(Jpg.Marker _marker, ArraySegment<byte> _data)
     {
         if (!classMap.TryGetValue(_marker.type, out Type? clsType))
             return new SgmUnsupported(_marker, _data.Slice(_marker.pos, _marker.len));

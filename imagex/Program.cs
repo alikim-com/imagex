@@ -171,12 +171,11 @@ internal class Program
         if (fname == "") fname = "baloon.jpg";
         Console.WriteLine("decoding '" + fname + "'..");
 
-        var images = Jpg.FromFile(path, fname);
-        foreach(var img in images) Console.WriteLine(img);
-        //foreach (var jpg in images) Console.WriteLine(jpg);
+        var image = Jpg.FromFile(path, fname)[0];
+        
+        Console.WriteLine(image);
 
-
-
+        image.BaselineDCTScanToRgba(true).ToBmp().ToFile(path, fname);
     }
 
     static void TestCRC32()
