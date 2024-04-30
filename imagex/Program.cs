@@ -175,7 +175,7 @@ internal class Program
         
         Console.WriteLine(image);
 
-        image.BaselineDCTScanToRgba(true).ToBmp().ToFile(path, fname);
+        image.ToXjpg().ScanToRGBA(0, true).ToBmp().ToFile(path, fname);
     }
 
     static void TestCRC32()

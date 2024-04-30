@@ -1,8 +1,26 @@
-﻿namespace imagex;
+﻿
 
-public class Xjpg
+namespace imagex;
+
+/// <summary>
+/// Contains decompressed MCU / DU data while preserving
+/// original data packing
+/// </summary>
+public class Xjpg(
+    int _bitDepth, // sof P
+    List<int> _numChan, // sof Nf || sos Ns
+    int _width, // sof X
+    int _height, // sof Y
+    List<ECS> _ecs) : Image(Format.Xdat, _width, _height)
 {
-    public Xjpg(Jpg jpg, bool verbose) { }
+    public readonly int bitDepth = _bitDepth;
+    public readonly List<int> numChan = _numChan;
+    public readonly List<ECS> ecs = _ecs;
+    //public readonly int bitsPerPixel = _numChan * _bitDepth;
+    //public readonly byte[] pixelData = _pixelData;
+
+    public Rgba ScanToRGBA(int index = 0, bool useRGBSpace = true) => ecs[index].ToRGBA(useRGBSpace);
+
 }
 
 public partial class SgmSOF0

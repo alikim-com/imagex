@@ -33,21 +33,21 @@ public class Jpg : Image
 
     public List<Segment> metaInfos;
 
-    class Frame(Segment _header, List<Segment> _dhts, List<Segment> _dqts)
+    class Frame(SgmSOF0 _header, List<SgmDHT> _dhts, List<SgmDQT> _dqts)
     {
-        public List<Segment> dhts = _dhts;
-        public List<Segment> dqts = _dqts;
-        public Segment header = _header;
+        public List<SgmDHT> dhts = _dhts;
+        public List<SgmDQT> dqts = _dqts;
+        public SgmSOF0 header = _header;
         public List<Scan> scans = [];
     }
     readonly List<Frame> frames;
 
-    class Scan(Segment _header, List<Segment> _dhts, List<Segment> _dqts)
+    class Scan(SgmSOS _header, List<SgmDHT> _dhts, List<SgmDQT> _dqts)
     {
-        public List<Segment> dhts = _dhts;
-        public List<Segment> dqts = _dqts;
-        public Segment header = _header;
-        public List<ECS> ecs = [];
+        public List<SgmDHT> dhts = _dhts;
+        public List<SgmDQT> dqts = _dqts;
+        public SgmSOS header = _header;
+        public int nextMarkerPos = 0;
     }
 
     public Jpg(
@@ -61,20 +61,26 @@ public class Jpg : Image
 
         // create top-level structure
 
-        List<Segment> dhts = [];
-        List<Segment> dqts = [];
+        List<SgmDHT> dhts = [];
+        List<SgmDQT> dqts = [];
         metaInfos = [];
         frames = [];
+        bool markScanEnd = false;
         for (int i = 0; i < markers.Count; i++)
         {
             var mrk = markers[i];
             var sgmType = mrk.type;
             var sgmName = sgmType.ToString();
+            if(markScanEnd)
+            {
+                frames[^1].scans[^1].nextMarkerPos = mrk.pos;
+                markScanEnd = false;
+            }
 
             if (sgmName.StartsWith("SOF"))
                 if (sgmName == "SOF0")
                 {
-                    frames.Add(new Frame(Decode(mrk, _data), dhts, dqts));
+                    frames.Add(new Frame((SgmSOF0)Decode(mrk, _data), dhts, dqts));
                     dhts = [];
                     dqts = [];
                 } else
@@ -82,13 +88,14 @@ public class Jpg : Image
 
             else if (sgmName == "SOS")
             {
-                frames[^1].scans.Add(new Scan(Decode(mrk, _data), dhts, dqts));
+                frames[^1].scans.Add(new Scan((SgmSOS)Decode(mrk, _data), dhts, dqts));
                 dhts = [];
                 dqts = [];
+                markScanEnd = true;
             } else if (sgmName.StartsWith("APP")) metaInfos.Add(Decode(mrk, _data));
 
-            else if (sgmType == SgmType.DQT) dqts.Add(Decode(mrk, _data));
-            else if (sgmType == SgmType.DHT) dhts.Add(Decode(mrk, _data));
+            else if (sgmType == SgmType.DQT) dqts.Add((SgmDQT)Decode(mrk, _data));
+            else if (sgmType == SgmType.DHT) dhts.Add((SgmDHT)Decode(mrk, _data));
 
         }
 
@@ -301,44 +308,43 @@ public class Jpg : Image
         return JpgList;
     }
 
+    /// <summary>
+    /// Decode scans (ECS') into MCUs & DUs containing original </br>
+    /// comp (YcbCr) data (8x8 unscaled) and pass a list of ECS to Xjpg
+    /// </summary>
     public Xjpg ToXjpg(bool verbose = true)
     {
-        // process scans (decode Data Units and assemble MCUs)
+        List<ECS> ecs = [];
+        List<int> numChan = [];
+        int bitDepth = 0;
 
-        //foreach (var fr in frames)
-        //{
-        //    sgmStr += fr.header.ToString();
+        foreach (var fr in frames)
+        {
+            if(fr.header is not SgmSOF0 sof) throw new InvalidDataException
+                    ("Jpg.ToXjpg : fHeader is null");
 
-        //    foreach (var dqt in fr.dqts) sgmStr += dqt.ToString();
-        //    foreach (var dht in fr.dhts) sgmStr += dht.ToString();
+            bitDepth = sof.samPrec;
 
-        //    foreach (var scan in fr.scans)
-        //    {
-        //        sgmStr += scan.header.ToString();
+            foreach (var sc in fr.scans)
+            {
+                if (sc.header is not SgmSOS sos) throw new InvalidDataException
+                    ("Jpg.ToXjpg : sHeader is null");
 
-        //        foreach (var dqt in scan.dqts) sgmStr += dqt.ToString();
-        //        foreach (var dht in scan.dhts) sgmStr += dht.ToString();
-        //    }
-        //}
+                var begOff = sos.bitStrOff;
+                // end of scan data is defined by a next segment marker or EOI
+                var eoiOff = data.Offset + data.Count;
+                var endOff = Math.Min(sc.nextMarkerPos, eoiOff);
 
-        //var dht = GetSegments(SgmType.DHT).Select(sgm => (SgmDHT)sgm);
+                var dht = sc.dhts.Count > 0 ? sc.dhts : fr.dhts;
+                var dqt = sc.dqts.Count > 0 ? sc.dqts : fr.dqts;
 
-        //var begOff = sos.bitStrOff;
-        //// end of scan data is defined by a next segment marker or EOI
-        //var eoiOff = _data.Offset + _data.Count;
-        //var sosInd = segments.FindIndex(sgm => sgm == sgmSos);
-        //var endOff = sosInd < segments.Count - 1 ? segments[sosInd + 1].GetOffset() : eoiOff;
+                numChan.Add(sos.numComp);
+                ecs.Add(new ECS(data.Array!, begOff, endOff, sof, sos, dht, dqt));
+            }
+        }
 
-        //var dqt = GetSegments(SgmType.DQT).Select(sgm => (SgmDQT)sgm);
-
-        //scan.Add(new Scan(data.Array!, begOff, endOff, sof0, sos, dht, dqt));
-
-        return new Xjpg(this, verbose);
-
+        return new Xjpg(bitDepth, numChan, Width, Height, ecs);
     }
-
-    public Rgba BaselineDCTScanToRgba(bool useRGBSpace = true) =>
-        frames[0].scans[0].ecs[0].ToRGBA(useRGBSpace);
 
     public List<Segment> GetSegments(SgmType stype)
     {
@@ -437,7 +443,7 @@ public struct Component
 /// <summary>
 /// Entropy-coded segment
 /// </summary>
-class ECS
+public class ECS
 {
     enum Status
     {
@@ -804,8 +810,8 @@ class ECS
         int _endOff,
         SgmSOF0 sof0,
         SgmSOS sos,
-        IEnumerable<SgmDHT> dht,
-        IEnumerable<SgmDQT> dqt)
+        List<SgmDHT> dht,
+        List<SgmDQT> dqt)
     {
         numComp = sos.numComp;
 
@@ -838,6 +844,10 @@ class ECS
         InverseDCT();
     }
 
+    /// <summary>
+    /// Scale DUs (un-sunsample)
+    /// </summary>
+    /// <param name="useRGBSpace"> Convert YCbCr to RGB</param>
     public Rgba ToRGBA(bool useRGBSpace = true)
     {
         var mcuWidthInPix = mcuWidthInDu * 8;
@@ -924,7 +934,7 @@ class ECS
 /// </param>
 public partial class SgmSOF0 : Segment
 {
-    readonly byte samPrec; // P
+    public readonly byte samPrec; // P
     public readonly ushort numLines; // Y
     public readonly ushort samPerLine; // X
     public readonly byte numComp; // Nf
