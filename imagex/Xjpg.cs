@@ -19,8 +19,7 @@ public class Xjpg(
     //public readonly int bitsPerPixel = _numChan * _bitDepth;
     //public readonly byte[] pixelData = _pixelData;
 
-    public Rgba ScanToRGBA(int index = 0, bool useRGBSpace = true) => ecs[index].ToRGBA(useRGBSpace);
-
+    public Rgba ScanToRGBA(int index = 0, bool useRGBSpace = true) => ecs.Count > index ? ecs[index].ToRGBA(useRGBSpace) : new Rgba(Width, Height, null);
 }
 
 public partial class SgmSOF0

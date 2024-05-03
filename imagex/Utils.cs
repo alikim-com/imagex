@@ -64,6 +64,9 @@ public class BitStream
         bytesLoaded = i;
         payload = ldCnt * 8;
         cont <<= 64 - payload;
+
+        //Console.WriteLine("------- InitLoadSkip");
+        //Console.WriteLine(cont.BytesLeftToRight().ToHexString());
     }
 
     /// <summary>
@@ -115,14 +118,15 @@ public class BitStream
     /// </summary>
     bool RefillSkip(int vbitLen)
     {
-        //Console.WriteLine("------- REFILLSKIP");
+        //Console.WriteLine("------- RefillSkip");
+        //Console.WriteLine($"payload: {payload}");
+        //Console.Write(cont.BytesLeftToRight().ToHexString());
 
         if (bytesLoaded == arrLen) return false;
 
         // refill cont
         ulong payloadRefill = 0; // must be 64 bit
         var availLen = 64 - payload;
-        //Console.WriteLine($"payload: {payload}");
         var refillBytesMax = availLen / 8;
         int refillBytes = 0;
         int i = bytesLoaded;
@@ -135,10 +139,12 @@ public class BitStream
             refillBytes++;
             i = b != 0xFF ? i + 1 : i + 2;
 
-            //if (b == 0xFF) Console.WriteLine("------- FF00");
+            //if (b == 0xFF) Console.Write("------- FF00");
 
         } while (refillBytes < refillBytesMax && i < arrLen);
         bytesLoaded = i;
+
+        //Console.WriteLine(" <--- " + payloadRefill.BytesLeftToRight().ToHexString());
 
         var refillBits = refillBytes * 8;
         payloadRefill <<= availLen - refillBits;
@@ -184,6 +190,8 @@ public class BitStream
 
     /// <summary>
     /// For JPEG DCT compressed data
+    /// ... 000 001 010 011   100 101 110 111 ...
+    ///     -7  -6  -5  -4    4   5   6   7
     /// </summary>
     public bool GetDCTValue(int vbitLen, out short val)
     {
@@ -220,9 +228,9 @@ public static class ArraySegmentExtensions
 public static class ByteArrayExtensions
 {
     public static string ToBinString(this byte[] bytes, string fmt = " ") =>
-        string.Join("", bytes.Select(b => Convert.ToString(b, 2) + fmt)!);
+        string.Join("", bytes.Select(b => Convert.ToString(b, 2).PadLeft(8,'0') + fmt)!);
 
-    public static string ToString(this byte[] bytes, string fmt = " ")
+    public static string ToHexString(this byte[] bytes, string fmt = " ")
     {
         string hex = BitConverter.ToString(bytes);
         return hex.Replace("-", fmt);

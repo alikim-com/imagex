@@ -47,7 +47,7 @@ public class Jpg : Image
         public List<SgmDHT> dhts = _dhts;
         public List<SgmDQT> dqts = _dqts;
         public SgmSOS header = _header;
-        public int nextMarkerPos = 0;
+        public int nextMarkerPos = int.MaxValue;
     }
 
     public Jpg(
@@ -71,7 +71,7 @@ public class Jpg : Image
             var mrk = markers[i];
             var sgmType = mrk.type;
             var sgmName = sgmType.ToString();
-            if(markScanEnd)
+            if (markScanEnd)
             {
                 frames[^1].scans[^1].nextMarkerPos = mrk.pos;
                 markScanEnd = false;
@@ -320,15 +320,15 @@ public class Jpg : Image
 
         foreach (var fr in frames)
         {
-            if(fr.header is not SgmSOF0 sof) throw new InvalidDataException
-                    ("Jpg.ToXjpg : fHeader is null");
+            if (fr.header is not SgmSOF0 sof) throw new InvalidDataException
+                    ("Jpg.ToXjpg : frame header is not SgmSOF0");
 
             bitDepth = sof.samPrec;
 
             foreach (var sc in fr.scans)
             {
                 if (sc.header is not SgmSOS sos) throw new InvalidDataException
-                    ("Jpg.ToXjpg : sHeader is null");
+                    ("Jpg.ToXjpg : scan header is not SgmSOS");
 
                 var begOff = sos.bitStrOff;
                 // end of scan data is defined by a next segment marker or EOI
@@ -339,7 +339,8 @@ public class Jpg : Image
                 var dqt = sc.dqts.Count > 0 ? sc.dqts : fr.dqts;
 
                 numChan.Add(sos.numComp);
-                ecs.Add(new ECS(data.Array!, begOff, endOff, sof, sos, dht, dqt));
+                var ec = new ECS(data.Array!, begOff, endOff, sof, sos, dht, dqt);
+                if (ec.status == ECS.Status.OK) ecs.Add(ec);
             }
         }
 
@@ -445,7 +446,7 @@ public struct Component
 /// </summary>
 public class ECS
 {
-    enum Status
+    public enum Status
     {
         None = 0,
         OK = 1,
@@ -455,8 +456,9 @@ public class ECS
         HCodeNotFound = 16,
         UnknownSymbol = 32,
         DQTNotFound = 64,
+        McuEndNotFound = 128,
     }
-    Status status;
+    public Status status;
 
     readonly Component[] comp;
     public readonly int[] compList;
@@ -571,6 +573,7 @@ public class ECS
         short[] dcDiff = new short[8];
 
         for (int m = 0; m < areaInMcu; m++)
+        {
             foreach (var ind in duSeq)
             {
                 DUnits[duCnt] = new DataUnit
@@ -608,8 +611,7 @@ public class ECS
                         return false;
                     }
                     dcDiff[ind] = zigZag[zzInd] = (short)(dcVal + dcDiff[ind]);
-                    // var codeBin = Convert.ToString(code, 2).PadLeft(dcLen, '0');
-                    // Console.WriteLine($"---------------- {codeBin}:{symb.numZeroes:X}/{symb.valBitlen:X} {dcVal}");
+
                     break;
                 }
                 if (!found)
@@ -622,7 +624,7 @@ public class ECS
                 // AC
                 found = false;
                 var acCodesToSymb = comp[ind].acCodesToSymb ?? [];
-                while (zzInd < 64)
+                while (zzInd < 63)
                 {
                     foreach (var acLen in comp[ind].acValidCodeLength!)
                     {
@@ -661,10 +663,18 @@ public class ECS
                             status |= Status.BitStreamOutOfBounds;
                             return false;
                         }
+
                         zzInd += numZeroes + 1;
-                        if (zzInd < 64) zigZag[zzInd] = acVal;
-                        // var codeBin = Convert.ToString(code, 2).PadLeft(acLen, '0');
-                        // Console.WriteLine($"------------------- {codeBin}:{numZeroes:X}/{valBitlen:X} {acVal}");
+
+                        if (zzInd > 63)
+                        {
+                            Console.WriteLine($"---- MCU#{m}/duSeq#{ind} end not found ----");
+                            status |= Status.McuEndNotFound;
+                            return false;
+                        }
+
+                        zigZag[zzInd] = acVal;
+
                         break;
                     }
                     if (!found)
@@ -687,6 +697,7 @@ public class ECS
 
                 duCnt++;
             }
+        }
 
         return true;
     }
@@ -823,6 +834,8 @@ public class ECS
         widthInMcu = sof0.scanWidthInMcu;
         heightInMcu = sof0.scanHeightInMcu;
 
+        status = Status.OK;
+
         // check comp integrity as a subset
 
         compList = sos.compList;
@@ -833,13 +846,19 @@ public class ECS
                 return;
             }
 
+        if (status != Status.OK) return;
+
         AssignComponentTables(sos, dht);
+        if (status != Status.OK) return;
 
         DecodeDataUnits(_data, _begOff, _endOff, out DUnits);
+        if (status != Status.OK) return;
 
         AssembleMCUs(out MCUs);
+        if (status != Status.OK) return;
 
         DeQuantise(dqt);
+        if (status != Status.OK) return;
 
         InverseDCT();
     }
