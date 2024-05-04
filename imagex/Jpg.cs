@@ -466,12 +466,12 @@ public class ECS
     /// <summary>
     /// Represents one Data Unit (8x8 component data)
     /// </summary>
-    struct DataUnit
+    public struct DataUnit
     {
         public int compId; // [1,1,1,1, 2,2, 3]
         public short[] zigZag;
         public short[,] table;
-        public short[,] compData;
+        public short[,] compData; // from inverse DCT
 
         public int chan; // [0,0,0,0, 1,1, 2]
         public int pixTop;
@@ -861,6 +861,8 @@ public class ECS
         if (status != Status.OK) return;
 
         InverseDCT();
+
+        SgmDHT.Encode(DUnits);
     }
 
     /// <summary>
@@ -1077,7 +1079,7 @@ public class SgmSOF2(Jpg.Marker _marker, ArraySegment<byte> _data) : Segment(_ma
 /// <summary>
 /// Define Huffman Table(s)
 /// </summary>
-public class SgmDHT : Segment
+public partial class SgmDHT : Segment
 {
     public enum TblClass
     {
@@ -1085,10 +1087,14 @@ public class SgmDHT : Segment
         AC = 1,
     }
 
+    /// <summary>
+    /// AC - 162 symb (0-15 zeroes * 1-10 bitlen + 00<eob>, F0<16z>)
+    /// DC - 12 symb (0 zeros * 1-11 bitlen + 00<dc==0>)
+    /// </summary>
     public struct Symb
     {
-        public byte numZeroes;
-        public byte valBitlen; // AC 1-10, DC 0-11
+        public byte numZeroes; // AC 0-15, DC 0
+        public byte valBitlen; // AC 1-10, DC 1-11
     }
 
     readonly List<TblClass> type; // Tc
