@@ -1,5 +1,7 @@
 ﻿
 
+using System.Numerics;
+
 namespace imagex;
 
 /// <summary>
@@ -57,26 +59,94 @@ public partial class SgmDHT
         acSymbFreq.Add(new Symb { numZeroes = 0xF, valBitlen = 0 }, 0);
         for (byte nz = 0; nz < 16; nz++)
             for (byte vbl = 1; vbl < 11; vbl++)
-            acSymbFreq.Add(new Symb { numZeroes = nz, valBitlen = vbl }, 0);
+                acSymbFreq.Add(new Symb { numZeroes = nz, valBitlen = vbl }, 0);
     }
 
-    public static void Encode(ECS.DataUnit[] DUnits)
+    public new enum Status
     {
+        None = 0,
+        OK = 1,
+        SymbolNotInDictionary = 2,
+
+    }
+
+    public static bool Encode(ECS.DataUnit[] DUnits)
+    {
+        Status status = Status.None;
+
         KeyValuePair<ushort, Symb>[][] dcCodesToSymb;
         KeyValuePair<ushort, Symb>[][] acCodesToSymb;
 
         foreach (var kv in dcSymbFreq) acSymbFreq[kv.Key] = 0;
         foreach (var kv in acSymbFreq) acSymbFreq[kv.Key] = 0;
 
+        int[] dcDiff = new int[8];
+
         foreach (var du in DUnits)
         {
-            var compID = du.compId;
+            var compId = du.compId;
             var zigZag = du.zigZag;
 
-            for(int i = 1; i < 64; i++)
-            {
+            short dcVal = (short)(zigZag[0] - dcDiff[compId]);
+            dcDiff[compId] = dcVal;
+            ushort udcVal = (ushort)Math.Abs(dcVal);
 
+            byte vbl = (byte)(32 - BitOperations.LeadingZeroCount(udcVal));
+            var symb = new Symb { numZeroes = 0, valBitlen = vbl };
+
+            if (!dcSymbFreq.TryGetValue(symb, out int val))
+            {
+                status |= Status.SymbolNotInDictionary;
+                return false;
+            }
+            dcSymbFreq[symb] = val + 1;
+
+            int nz = 0;
+            for (int i = 1; i < 64; i++)
+            {
+                short acVal = zigZag[i];
+                if(acVal == 0)
+                {
+
+                }
+                ushort uacVal = (ushort)Math.Abs(acVal);
+
+                vbl = (byte)(32 - BitOperations.LeadingZeroCount(uacVal));
+                symb = new Symb { numZeroes = 0, valBitlen = vbl };
+
+                if (!acSymbFreq.TryGetValue(symb, out val))
+                {
+                    status |= Status.SymbolNotInDictionary;
+                    return false;
+                }
+                acSymbFreq[symb] = val + 1;
             }
         }
+
+        foreach (var du in DUnits)
+            Console.WriteLine(Utils.TableToStr(du.table, 4, 5));
+
+        string dicStr = "DC[0]\n";
+        foreach (var kv in dcSymbFreq)
+        {
+            var symb = kv.Key;
+            var freq = kv.Value;
+            var numZrs = symb.numZeroes;
+            var valBitlen = symb.valBitlen;
+            dicStr += $"{numZrs:X}/{valBitlen:X} - {freq}\n";
+        }
+        dicStr += "\nAC[0]\n";
+        foreach (var kv in acSymbFreq)
+        {
+            var symb = kv.Key;
+            var freq = kv.Value;
+            var numZrs = symb.numZeroes;
+            var valBitlen = symb.valBitlen;
+            dicStr += $"{numZrs:X}/{valBitlen:X} - {freq}\n";
+        }
+
+        Console.WriteLine(dicStr);
+
+        return true;
     }
 }
