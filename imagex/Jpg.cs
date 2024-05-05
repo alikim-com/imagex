@@ -854,6 +854,8 @@ public class ECS
         DecodeDataUnits(_data, _begOff, _endOff, out DUnits);
         if (status != Status.OK) return;
 
+        SgmDHT.Encode(DUnits);
+
         AssembleMCUs(out MCUs);
         if (status != Status.OK) return;
 
@@ -861,8 +863,6 @@ public class ECS
         if (status != Status.OK) return;
 
         InverseDCT();
-
-        SgmDHT.Encode(DUnits);
     }
 
     /// <summary>

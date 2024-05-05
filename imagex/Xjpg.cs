@@ -82,8 +82,11 @@ public partial class SgmDHT
 
         int[] dcDiff = new int[8];
 
+        int cnt = 0;
         foreach (var du in DUnits)
         {
+            if (cnt++ > 3) break;
+
             var compId = du.compId;
             var zigZag = du.zigZag;
 
@@ -101,18 +104,28 @@ public partial class SgmDHT
             }
             dcSymbFreq[symb] = val + 1;
 
-            int nz = 0;
+            byte nz = 0;
+            var eot = new Symb { };
+            var zblock = new Symb { numZeroes = 0xF, valBitlen = 0};
             for (int i = 1; i < 64; i++)
             {
                 short acVal = zigZag[i];
                 if(acVal == 0)
                 {
-
+                    nz++;
+                    if (nz == 16)
+                    {
+                        nz = 0;
+                        acSymbFreq[zblock]++;
+                    }
+                    continue;
                 }
                 ushort uacVal = (ushort)Math.Abs(acVal);
 
                 vbl = (byte)(32 - BitOperations.LeadingZeroCount(uacVal));
-                symb = new Symb { numZeroes = 0, valBitlen = vbl };
+                symb = new Symb { numZeroes = nz, valBitlen = vbl };
+
+                nz = 0;
 
                 if (!acSymbFreq.TryGetValue(symb, out val))
                 {
@@ -121,6 +134,7 @@ public partial class SgmDHT
                 }
                 acSymbFreq[symb] = val + 1;
             }
+            if(nz != 0) acSymbFreq[eot]++;
         }
 
         foreach (var du in DUnits)
