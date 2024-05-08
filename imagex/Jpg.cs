@@ -854,6 +854,7 @@ public class ECS
         DecodeDataUnits(_data, _begOff, _endOff, out DUnits);
         if (status != Status.OK) return;
 
+        // ENCODING TEST ONLY
         SgmDHT.Encode(DUnits);
 
         AssembleMCUs(out MCUs);
@@ -866,7 +867,7 @@ public class ECS
     }
 
     /// <summary>
-    /// Scale DUs (un-sunsample)
+    /// Scale DUs (un-subsample)
     /// </summary>
     /// <param name="useRGBSpace"> Convert YCbCr to RGB</param>
     public Rgba ToRGBA(bool useRGBSpace = true)

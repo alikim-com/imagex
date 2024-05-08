@@ -51,11 +51,13 @@ public partial class SgmDHT
     {
         public Symb symb;
         public int freq;
-        public int[] chIndex;
+        public int firstChild;
+        public int secondChild;
+        public int codelen; // 1-16
     }
 
-    static readonly HuffNode[] _dc = new HuffNode[12];
-    static readonly HuffNode[] _ac = new HuffNode[162];
+    static readonly HuffNode[] _dc = new HuffNode[12 * 2];  // [ 12 leaves] | [space for tree nodes]
+    static readonly HuffNode[] _ac = new HuffNode[162 * 2]; // [162 leaves] | [space for tree nodes]
 
     // reusable statistics/tree containers for each compId
 
@@ -74,8 +76,9 @@ public partial class SgmDHT
             _dc[cnt++] = new HuffNode
             {
                 symb = new Symb { numZeroes = 0, valBitlen = vbl },
-                freq = 0,
-                chIndex = [-1, -1],
+                firstChild = -1,
+                secondChild = -1,
+                codelen = 1,
             };
 
         // AC
@@ -84,15 +87,17 @@ public partial class SgmDHT
         _ac[0] = new HuffNode
         {
             symb = new Symb { numZeroes = 0, valBitlen = 0 },
-            freq = 0,
-            chIndex = [-1, -1],
+            firstChild = -1,
+            secondChild = -1,
+            codelen = 1,
         };
         // 16 zero span
         _ac[1] = new HuffNode
         {
             symb = new Symb { numZeroes = 0xF, valBitlen = 0 },
-            freq = 0,
-            chIndex = [-1, -1],
+            firstChild = -1,
+            secondChild = -1,
+            codelen = 1,
         };
         cnt = 2;
         for (byte nz = 0; nz < 16; nz++)
@@ -100,8 +105,9 @@ public partial class SgmDHT
                 _ac[cnt++] = new HuffNode
                 {
                     symb = new Symb { numZeroes = nz, valBitlen = vbl },
-                    freq = 0,
-                    chIndex = [-1, -1],
+                    firstChild = -1,
+                    secondChild = -1,
+                    codelen = 1,
                 };
     }
 
@@ -137,7 +143,7 @@ public partial class SgmDHT
 
             // DC
 
-            var dc = compDc[0];
+            var dc = compDc[0]; // compId
 
             short dcVal = (short)(zigZag[0] - dcDiff[compId]);
             dcDiff[compId] = dcVal;
@@ -155,7 +161,7 @@ public partial class SgmDHT
 
             // AC
 
-            var ac = compAc[0];
+            var ac = compAc[0]; // [compId]
 
             byte nz = 0;
             for (int i = 1; i < 64; i++)
@@ -189,9 +195,91 @@ public partial class SgmDHT
             if (nz != 0) ac[0].freq++; // eob   
         }
 
-
         // build Huffman tree to find codes' length
-        // tree nodes FF added to the array <- COPY SIZE CHK
+
+        var sortNodes = Comparer<HuffNode>.Create(
+            (n1, n2) => n1.freq > n2.freq ? 1 : n1.freq < n2.freq ? -1 : 0);
+
+        for (int c = 0; c < 1; c++) //  4
+        {
+            // DC
+
+
+            // AC
+
+            var ac = compAc[c];
+
+            Array.Sort(ac, 0, 162, sortNodes); // freq [0,...0, 1, 2, 5, ...] | [...]
+
+            int headTop = Array.FindIndex(ac, n => n.freq > 0);
+            int headBot = 162;
+            int insertBot = 162;
+
+            // LOOP (headTop == 161 && (insertBot - headBot == 1))
+
+            // case of 1 symb total - exit with codelen == 1 default
+            // case of 2 symb total - 
+
+            // find 2 min out of [A,B,...,leaves] | [C,D,...,nodes]
+            // to form a node
+
+            int A = ac[headTop].freq;
+            int B = ac[headTop + 1].freq;
+
+            int C = ac[headBot].freq;
+            int D = ac[headBot + 1].freq;
+
+            int freq;
+            int firstChild;
+            int secondChild;
+
+            if (B <= C)
+            {
+                freq = A + B;
+                firstChild = headTop;
+                secondChild = headTop + 1;
+                headTop += 2;
+
+            } else if (C < A)
+            {
+                freq = C;
+                firstChild = headBot;
+                headBot++;
+
+                if (D < A)
+                {
+                    freq += D;
+                    secondChild = headBot + 1;
+                    headBot++;
+
+                } else
+                {
+                    freq += A;
+                    secondChild = headTop;
+                    headTop++;
+                }
+
+            } else  // A <= C < B
+            {
+                freq = A + C;
+                firstChild = headTop;
+                secondChild = headBot;
+                headTop++;
+                headBot++;
+            }
+
+            ac[insertBot++] = new HuffNode
+            {
+                freq = freq,
+                firstChild = firstChild,
+                secondChild = secondChild,
+            };
+
+            // /LOOP
+
+
+
+        }
 
 
         foreach (var du in DUnits)
